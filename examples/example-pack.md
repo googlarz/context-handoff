@@ -1,4 +1,6 @@
 ---
+pack_version: "1.1"
+
 version: "1.0"
 created: "2026-05-16T15:00:00Z"
 last_updated: "2026-05-16T18:30:00Z"
@@ -6,6 +8,9 @@ update_count: 9
 update_triggers: [decision, commit, decision, turn, decision, commit, decision, turn, commit]
 topic: "building vibe-safe v1.9.0 release"
 session_id: "ch-20260516-x7k2"
+
+author: "googlarz"
+receiver: "self"
 
 resume_point: "v1.9.0 tagged and pushed; README needs updating to reflect 40 risk categories and new CI test results"
 
@@ -52,6 +57,11 @@ decisions:
   - what: "use per-file diff analysis for block_pattern check"
     why: "global diff analysis was producing false positives when patterns appeared in deleted lines; per-file is more accurate and gives better error attribution"
     when: "2026-05-16T17:20:00Z"
+    superseded_by: "no longer superseded — this remains the final approach"
+  - what: "store risk category config in a separate YAML file"
+    why: "proposed to make categories user-configurable without editing the script"
+    when: "2026-05-16T15:15:00Z"
+    superseded_by: "rejected in favor of keeping config inline — see ruled_out: external config file"
 
 ruled_out:
   - what: "making semgrep a hard requirement"
@@ -63,17 +73,49 @@ ruled_out:
   - what: "adding a 6th optional tool integration"
     why: "scope creep; 3 is enough for v1.9.0"
     when: "2026-05-16T16:46:00Z"
+  - what: "external YAML config file for risk categories"
+    why: "adds a file dependency and complicates distribution; inline config is simpler and the categories rarely change"
+    when: "2026-05-16T15:20:00Z"
+    revisit_after: "if user base grows and people start requesting custom category sets"
 
 open_threads:
-  - "README not yet updated with v1.9.0 test evidence and 40 risk category count"
-  - "GitHub profile README still shows old v1.8.0 numbers"
-  - "consider adding a CONTRIBUTING.md before next release"
+  - text: "README not yet updated with v1.9.0 test evidence and 40 risk category count"
+    priority: high
+    added_at: "2026-05-16T18:00:00Z"
+  - text: "GitHub profile README still shows old v1.8.0 numbers"
+    priority: medium
+    added_at: "2026-05-16T18:00:00Z"
+  - text: "consider adding a CONTRIBUTING.md before next release"
+    priority: low
+    added_at: "2026-05-16T18:00:00Z"
+
+closed_threads:
+  - text: "decide on file format for optional tool integrations"
+    closed_at: "2026-05-16T15:50:00Z"
+  - text: "write tests for the 5 new grep checks"
+    closed_at: "2026-05-16T17:00:00Z"
 
 artifacts:
   - label: "test run output v1.9.0"
     content: "45/45 tests passing across pre-commit hook (test_vibe_safe.sh) and CI script (test_vibe_safe_ci.sh)"
   - label: "new checks in v1.9.0"
     content: "SQL injection (raw string concat in queries), shell injection (unsanitized $var in exec), Math.random() in auth/crypto contexts, hardcoded IPs, debug/test endpoints in production code"
+
+context_files:
+  - "vibe-safe.sh"
+  - "tests/test_vibe_safe.sh"
+  - "README.md"
+
+prerequisites:
+  - "bash 4+"
+  - "git installed"
+
+environment_state:
+  branch: "main"
+  services_running: []
+  notes: "v1.9.0 tagged and pushed; only remaining work is README documentation"
+
+prior_session: "~/.claude/handoffs/2026-05-15-vibe-safe-planning.md"
 ---
 
 # Context Handoff — vibe-safe v1.9.0 release
@@ -95,6 +137,8 @@ Extending vibe-safe from 32 to 40 risk categories. Added 5 new grep-based securi
 
 **Per-file diff analysis for block_pattern** — global diff was producing false positives on deleted lines. Per-file is more accurate and gives better attribution in error output.
 
+~~**Store risk category config in external YAML**~~ — *(superseded: rejected in favor of keeping config inline — external config file ruled out)*
+
 ## Ruled out
 
 **Semgrep as hard requirement** — the grep-based checks already cover the critical cases. Making semgrep required would break zero-dependency install.
@@ -103,11 +147,13 @@ Extending vibe-safe from 32 to 40 risk categories. Added 5 new grep-based securi
 
 **6th optional tool integration** — scope creep. 3 is enough for v1.9.0.
 
+**External YAML config for risk categories** — adds a file dependency, complicates distribution, and the categories rarely change. Revisit if users start requesting custom category sets.
+
 ## Open threads
 
-- README not yet updated with v1.9.0 test results and 40 risk category count
-- GitHub profile README still shows old v1.8.0 numbers
-- CONTRIBUTING.md would be good before next release
+- **[high]** README not yet updated with v1.9.0 test results and 40 risk category count
+- **[medium]** GitHub profile README still shows old v1.8.0 numbers
+- **[low]** CONTRIBUTING.md would be good before next release
 
 ## Next actions
 

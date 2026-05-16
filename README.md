@@ -1,5 +1,9 @@
 # context-handoff
 
+![version](https://img.shields.io/badge/version-1.1.0-blue)
+![license](https://img.shields.io/badge/license-MIT-green)
+![skill](https://img.shields.io/badge/Claude%20Code-skill-orange)
+
 **Your Claude sessions have amnesia. This fixes it.**
 
 A Claude Code skill that packs your session state — decisions, reasoning, work state, behavioral contracts — and restores it in any new conversation. The new session resumes exactly where you left off.
@@ -28,6 +32,28 @@ The worst part isn't the summary — it's the **ruled-out list**. The things tha
 | **Open threads** | Unresolved questions with full context. |
 
 `/context-handoff load` restores all of it into a new session. Claude reads the pack, re-establishes every contract, and picks up from the exact resume point — before doing anything else.
+
+## How it works
+
+```
+Session starts   →  /context-handoff load
+                    restores contracts, decisions, work state, open threads
+                         │
+                         ▼
+Work happens     →  auto-updates fire:
+                    • git commit  → immediate update (PostToolUse hook)
+                    • decision detected → Claude appends inline
+                    • ~5 turns   → fallback cadence update
+                         │
+                         ▼
+Session ends     →  pack is a complete living record
+                         │
+                         ▼
+New session      →  /context-handoff load
+                    resumes exactly — contracts re-established, work state intact
+```
+
+---
 
 ## Auto-update
 
@@ -90,6 +116,20 @@ Load a specific session by name.
 ```
 /context-handoff update
 ```
+
+### Other commands (v1.1.0)
+
+| Command | Description |
+|---------|-------------|
+| `/context-handoff list` | List all packs. Accepts an optional search term: `list auth` |
+| `/context-handoff search <query>` | Full-text search across all pack content |
+| `/context-handoff delete <name>` | Delete a pack by name |
+| `/context-handoff close <thread>` | Mark an open thread as resolved |
+| `/context-handoff contracts` | Show active behavioral contracts for the current session |
+| `/context-handoff threads` | List all open threads across all packs |
+| `/context-handoff diff <name>` | Show what changed between two updates of a pack |
+| `/context-handoff merge <a> <b>` | Merge two packs into one (combines decisions, threads, contracts) |
+| `/context-handoff rename <old> <new>` | Rename a pack file |
 
 ---
 
@@ -191,13 +231,51 @@ git commit -m "handoff: feature-x context for @teammate"
 
 ---
 
+## vs Claude's built-in memory
+
+Users often ask: "how is this different from Claude's memory files?"
+
+| | context-handoff | Claude memory files |
+|---|---|---|
+| Scope | One session / project | Across all sessions |
+| What's captured | Decisions, reasoning, work state, contracts | Facts, preferences, project notes |
+| Load mechanism | Explicit — you choose when and what | Always-on background context |
+| Team sharing | Yes — commit the pack file | No — per-user |
+| Session replay | Yes — diff between sessions | No |
+| Best for | Continuing a specific thread of work | Persistent cross-project knowledge |
+
+They're complementary, not competing. Use both.
+
+---
+
 ## What's next (v2.0)
 
-v1.0 is single-session continuity. v2.0 will be multi-agent and team-native:
+**v1.1.0 shipped:** new commands (`list`, `search`, `delete`, `close`, `contracts`, `threads`, `diff`, `merge`, `rename`), pack format improvements, staleness detection, and session ID pinning.
+
+v1.1.0 is still single-session continuity. v2.0 will be multi-agent and team-native:
 
 - **Append-only decisions log** — multiple Claude sessions write to the same pack without collisions
 - **Git-native sync** — session branches merge into a shared pack; teams pull context like they pull code
 - **No new infrastructure** — still pure skill, same zero-dependency install
+
+---
+
+## FAQ
+
+**Can I have multiple active packs at once?**
+Yes — each `/context-handoff pack` creates a new file. `/context-handoff load` lets you pick which one to restore.
+
+**Does this work without the commit hook?**
+Yes. The hook adds commit-triggered auto-updates. Without it, decision detection and turn cadence still fire.
+
+**How is this different from just summarizing the conversation?**
+A summary tells you what happened. A pack tells you what to do next — with the reasoning behind every decision and every option that was considered and rejected.
+
+**Can teammates use each other's packs?**
+Yes. Commit the `.claude/handoffs/` folder to your repo. Anyone who loads your pack gets your full decision context.
+
+**What happens to old packs?**
+They accumulate in `~/.claude/handoffs/`. Use `/context-handoff list` to browse and `/context-handoff delete` to clean up.
 
 ---
 
