@@ -1,6 +1,6 @@
 # context-handoff
 
-![version](https://img.shields.io/badge/version-1.5.0-blue)
+![version](https://img.shields.io/badge/version-1.6.0-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![skill](https://img.shields.io/badge/Claude%20Code-skill-orange)
 
@@ -160,6 +160,7 @@ Load a specific session by name.
 | `/context-handoff amend-decision <text>` | Edit an existing decision's reasoning or mark it superseded |
 | `/context-handoff note <text>` | Add a quick observation to the active pack (lighter-weight than a thread) |
 | `/context-handoff notes` | List all notes in the active session |
+| `/context-handoff verify` | Diff Claude's stated session understanding against the written pack |
 
 Commands that accept `--project`: `pack`, `load`, `archive`, `fork`, `search`, `threads` — saves/reads from `.claude/handoffs/` inside the git repo instead of `~/.claude/handoffs/`.
 
@@ -298,6 +299,8 @@ They're complementary, not competing. Use both.
 ---
 
 ## What's next (v2.0)
+
+**v1.6.0 shipped:** Expert reliability overhaul — `verify` command (diffs session memory vs. written pack), pack integrity hash (SHA-256 verified on load), concurrency protection (two parallel sessions no longer clobber each other), Write/Edit hook (files_touched updated on every file change, not just git commits), decision history (amend-decision preserves prior reasoning in `history` sub-field), pack size budget (auto-archives closed threads and superseded decisions above threshold).
 
 **v1.5.0 shipped:** No-arg smart routing (`/context-handoff` alone resumes or offers to save), proactive packing offer at natural session endpoints (20 turns, closing phrases, milestone completion), first-time onboarding message on first command, visible save confirmations show pack topic.
 

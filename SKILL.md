@@ -1,6 +1,6 @@
 ---
 name: context-handoff
-version: "1.5.0"
+version: "1.6.0"
 description: Session continuity for Claude — pack your current session state and load it into any new conversation with full context, decisions, behavioral contracts, and work state restored. Auto-updates on commits, decisions, and every 5 turns.
 tags: [session-continuity, context, handoff, productivity]
 author: googlarz
@@ -22,6 +22,7 @@ All commands that prompt for confirmation accept `--yes` / `-y` to skip. See the
 | `/context-handoff pack [--project]` | Create a context pack from the current session |
 | `/context-handoff load [--quiet] [--project] [--state-only] [--contracts-only]` | Load a context pack at the start of a new session |
 | `/context-handoff update` | Force-write an update to the current session's pack |
+| `/context-handoff verify` | Diff Claude's stated session understanding against what's actually in the pack file |
 | `/context-handoff status` | Quick health check for the current session |
 | `/context-handoff list [query] [--all] [--limit <n>] [--tag <tag>]` | List packs, optionally filtered; defaults to 20 most recent |
 | `/context-handoff open <pack> [--full]` | View a pack's summary and first 40 lines without loading it |
@@ -101,6 +102,7 @@ Synthesize the current conversation into a context pack file.
    - **New:** proceed with creating a new dated file
 5. **prior_session auto-population:** If `.active` exists and is valid (not stale), set `prior_session` in the new pack's frontmatter to the path of the currently active pack before writing.
 6. Generate the pack file at `<dir>/YYYY-MM-DD-<topic-slug>.md`
+6a. **Integrity hash:** Compute the SHA-256 of the written file content and store it in `content_hash` in the frontmatter. Re-write the file with the hash included.
 7. **CLAUDE.md seeding:** Before synthesizing behavioral contracts from the session:
    a. Check if `CLAUDE.md` exists in the current directory or `~/.claude/CLAUDE.md`
    b. If found, read it and extract any behavioral instructions (style, process, constraints)
@@ -144,6 +146,7 @@ Load a context pack at the start of a new session.
    Pick the most recent if context makes it obvious.
 3. If the handoffs directory is empty or doesn't exist: "No packs found. Use `/context-handoff pack` to create one."
 4. Read the pack file. If YAML frontmatter fails to parse, fall back to reading the markdown body only and warn: `⚠ Pack YAML could not be parsed — loading human-readable layer only. Behavioral contracts and work state will not be restored.`
+4a. **Integrity check:** If `content_hash` is present in the frontmatter, verify it matches the SHA-256 of the file content. If mismatch: `⚠ Pack integrity check failed — file may have been modified outside context-handoff. Proceeding anyway.`
 5. **Staleness check:** If `last_updated` is more than 7 days ago, warn before restoring:
    > `⚠ This pack is X days old (last updated YYYY-MM-DD). Resume point and open threads may be stale.`
    Continue loading regardless.
@@ -178,8 +181,45 @@ Force-write a full update to the current session's pack.
 1. Find the active pack by reading `~/.claude/handoffs/.active` (or ask user if not found)
 2. Before writing, check if `last_updated` in the file is newer than what Claude last read. If so, read the current file first and merge (append new decisions, take latest work_state) rather than overwriting.
 3. Rewrite the full pack with current state
+3a. **Integrity hash:** Recompute SHA-256 of the updated file content and update `content_hash`.
 4. Increment `update_count`, append trigger `manual` to `update_triggers`
 5. Confirm silently: `↻ Pack updated (manual) — [path]`
+
+---
+
+## `/context-handoff verify`
+
+Diff Claude's in-memory understanding of the current session against what is actually written in the active pack file.
+
+**Steps:**
+1. Read `~/.claude/handoffs/.active`. If no active session: error "No active session. Load or create a pack first."
+2. Read the pack file from disk.
+3. Compare on four dimensions:
+   - **resume_point:** Claude's current understanding of where we are vs. the written `resume_point`
+   - **decisions:** Any decisions Claude recalls that are not in the pack's `decisions` list
+   - **open_threads:** Any threads Claude knows about that are not in `open_threads`
+   - **work_state.files_touched:** Files Claude has modified this session vs. `files_touched`
+4. Report the diff:
+   ```
+   verify: context-handoff-build
+   ══════════════════════════════
+
+   resume_point
+     pack:    "writing README — SKILL.md done"
+     session: "README done, pushing to GitHub"   ← DRIFT
+
+   decisions
+     in session, not in pack:
+       - "use --ff-only for git pull in upgrade.sh" (not yet written)
+
+   open_threads
+     ✓ match
+
+   files_touched
+     in session, not in pack: ["scripts/upgrade.sh"]
+   ```
+5. If drift is found, offer: "Update the pack now? (y/n)" — if yes, run `/context-handoff update`.
+6. If no drift: "✓ Pack matches session state."
 
 ---
 
@@ -482,7 +522,17 @@ Edit an existing decision in the active pack.
 1. Find the decision by partial match on the `what` field. Error if ambiguous (multiple matches) or not found.
 2. Show the current entry (what, why, when, superseded_by if set).
 3. Offer to edit: `why`, `superseded_by`, or both.
-4. Apply the change and write the pack.
+4. Apply the change: move the current `why` value into a `history` sub-field (append, don't replace), then set the new `why`. The `history` field is a list of `{why: "...", amended_at: "ISO timestamp"}` entries. This preserves the full reasoning evolution.
+
+   Example after amendment:
+   ```yaml
+   - what: "use per-file diff analysis"
+     why: "global diff was giving false positives on deleted lines"
+     when: "2026-05-16T17:20:00Z"
+     history:
+       - why: "original reasoning: global diff was simpler"
+         amended_at: "2026-05-16T18:00:00Z"
+   ```
 5. Confirm: `✓ Decision amended: "[what]"`
 
 Does not allow editing `what` (the decision identity) — only its metadata.
@@ -605,6 +655,7 @@ Session
   load [--quiet] [--project] [--state-only] [--contracts-only]
                             Restore a pack into a new session
   update                    Force-write a pack update
+  verify                    Diff session state vs. pack file
   status                    Quick health check for active session
 
 Browsing
@@ -678,7 +729,15 @@ On every auto-update trigger, read `.active` to find the current pack path — n
 
 ### Trigger 1: Git commit detected
 
-When you see `CONTEXT-HANDOFF: commit detected` in hook output (from the PostToolUse hook), immediately:
+The PostToolUse hook fires on two event types:
+
+**Commit trigger:** When hook output contains `CONTEXT-HANDOFF: commit detected` — full pack update (files_touched, plan_position, append `commit` to update_triggers).
+
+**Write trigger:** When hook output contains `CONTEXT-HANDOFF: file-write detected` — lightweight update: append new files to `files_touched`, update `last_updated`. Do NOT increment `update_count` or append to `update_triggers`. Silent, no confirmation.
+
+Both triggers read `.active` to find the pack path — no reliance on conversation memory.
+
+When the commit trigger fires, immediately:
 1. Update `work_state.files_touched` with any new files
 2. Update `work_state.plan_position` if a step completed
 3. Append `commit` to `update_triggers`
@@ -716,13 +775,36 @@ This warning fires at most once per session. Do not repeat.
 
 Updates are **incremental** where possible — append to decisions/ruled_out/open_threads rather than rewriting. Only rewrite `work_state` and `resume_point` in full.
 
-**Write coordination:** Before writing a pack, check if `last_updated` in the file is newer than what Claude last read. If so, read the current file first and merge (append new decisions, take latest work_state) rather than overwriting.
+**Write coordination and concurrency protection:**
+
+Before writing a pack, read the current file and check two things:
+
+1. **Timestamp check:** If `last_updated` in the file is newer than what Claude last read, merge (append new decisions, take latest work_state) rather than overwrite.
+
+2. **Session ID check:** If the file's `session_id` differs from the current session's `session_id`, this pack is being written by another Claude session. Do NOT overwrite. Instead, append new decisions and threads only — never replace `work_state` or `resume_point`. Log silently: `⚠ Concurrent session detected — appended decisions only, work_state not overwritten.`
+
+This prevents two parallel Claude sessions (e.g., two terminal tabs) from clobbering each other's work state.
 
 **update_triggers cap:** When appending to `update_triggers`, if the list already has 20 entries, replace it with a summary format before appending the new trigger:
 ```yaml
 update_triggers: ["...20 prior triggers", "decision", "commit"]
 ```
 Keep only the last 2 actual entries plus the summary prefix.
+
+### Pack size budget
+
+Keep packs under ~50KB. On every update, check the estimated pack size:
+
+- If `closed_threads` has more than 20 entries, move the oldest 10 to a sidecar file at `<pack-path>-archive.md` (create if not exists, append otherwise).
+- If `decisions` has more than 60 entries, move superseded decisions (those with `superseded_by` set) to the sidecar.
+- After moving, add a note to the pack:
+  ```yaml
+  notes:
+    - text: "N entries moved to archive (auto-pruned for size)"
+      when: "ISO timestamp"
+  ```
+
+The sidecar is human-readable only — it is never loaded by `load` or `update`. It is for history, not for restoration.
 
 ---
 
@@ -749,6 +831,10 @@ created: "YYYY-MM-DDTHH:MM:SSZ"
 last_updated: "YYYY-MM-DDTHH:MM:SSZ"
 update_count: 0
 update_triggers: []
+
+# SHA-256 of pack file content (computed on write, verified on load)
+content_hash: ""
+
 topic: "short topic description"
 session_id: "ch-YYYYMMDD-xxxx"
 
@@ -802,9 +888,12 @@ work_state:
 # superseded_by is optional — use when a later decision overrides this one
 decisions:
   - what: "what was decided"
-    why: "the reasoning — alternatives considered and why this was chosen"
+    why: "current reasoning"
     when: "ISO timestamp"
-    superseded_by: "optional: description of the later decision that overrides this"
+    superseded_by: "optional"
+    history:           # populated by amend-decision; do not edit manually
+      - why: "prior reasoning"
+        amended_at: "ISO timestamp"
 
 # Options considered and rejected — the most expensive context to lose
 # revisit_after is optional — use when the ruling-out is conditional
@@ -912,13 +1001,22 @@ To enable automatic pack updates on git commits, add this to `~/.claude/settings
             "command": "echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'git commit|git push' && echo 'CONTEXT-HANDOFF: commit detected — update pack' || true"
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'CONTEXT-HANDOFF: file-write detected — update files_touched'"
+          }
+        ]
       }
     ]
   }
 }
 ```
 
-The skill's `install-hook.sh` script does this automatically. Run:
+The `install-hook.sh` script installs both hooks automatically. Run:
 
 ```bash
 bash ~/.claude/skills/context-handoff/scripts/install-hook.sh
