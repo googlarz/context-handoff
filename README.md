@@ -1,6 +1,6 @@
 # context-handoff
 
-![version](https://img.shields.io/badge/version-1.1.0-blue)
+![version](https://img.shields.io/badge/version-1.2.0-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![skill](https://img.shields.io/badge/Claude%20Code-skill-orange)
 
@@ -117,19 +117,26 @@ Load a specific session by name.
 /context-handoff update
 ```
 
-### Other commands (v1.1.0)
+### Other commands (v1.1.0+)
 
 | Command | Description |
 |---------|-------------|
 | `/context-handoff list` | List all packs. Accepts an optional search term: `list auth` |
 | `/context-handoff search <query>` | Full-text search across all pack content |
-| `/context-handoff delete <name>` | Delete a pack by name |
+| `/context-handoff delete <name>` | Delete a pack by name. Accepts `--dry-run` |
 | `/context-handoff close <thread>` | Mark an open thread as resolved |
 | `/context-handoff contracts` | Show active behavioral contracts for the current session |
 | `/context-handoff threads` | List all open threads across all packs |
-| `/context-handoff diff <name>` | Show what changed between two updates of a pack |
-| `/context-handoff merge <a> <b>` | Merge two packs into one (combines decisions, threads, contracts) |
+| `/context-handoff diff <name>` | Show what changed between two updates of a pack. Accepts `--vs-current` to diff against live session |
+| `/context-handoff merge <a> <b>` | Merge two packs into one (combines decisions, threads, contracts). Accepts `--dry-run` |
 | `/context-handoff rename <old> <new>` | Rename a pack file |
+| `/context-handoff status` | Quick health check — active pack, last updated, open thread count |
+| `/context-handoff open <name>` | View a pack's content without loading it |
+| `/context-handoff add-thread <text>` | Add an open thread to the active pack. Accepts `--priority high\|medium\|low` |
+| `/context-handoff archive` | Move packs not updated in 30+ days to `archive/`. Accepts `--older-than <days>` |
+| `/context-handoff fork <name>` | Create a variant of a pack for a parallel approach, preserving lineage |
+
+`load` also accepts `--state-only` to restore work state without re-establishing behavioral contracts.
 
 ---
 
@@ -231,6 +238,19 @@ git commit -m "handoff: feature-x context for @teammate"
 
 ---
 
+## Project-scoped packs
+
+By default packs go to `~/.claude/handoffs/` (personal, not committed). For team sharing, use `--project` to save inside the repo:
+
+```bash
+/context-handoff pack --project
+# saves to .claude/handoffs/YYYY-MM-DD-topic.md inside the git repo
+```
+
+Add `.claude/handoffs/` to your repo and commit packs you want to share. `list` always shows both locations.
+
+---
+
 ## vs Claude's built-in memory
 
 Users often ask: "how is this different from Claude's memory files?"
@@ -249,6 +269,8 @@ They're complementary, not competing. Use both.
 ---
 
 ## What's next (v2.0)
+
+**v1.2.0 shipped:** `status`, `open`, `add-thread`, `archive`, `fork` commands; `diff --vs-current`, `load --state-only`, `delete/merge --dry-run` flags; merge conflict detection; CLAUDE.md contract seeding; stale session detection; structured `communication_style` field in pack format.
 
 **v1.1.0 shipped:** new commands (`list`, `search`, `delete`, `close`, `contracts`, `threads`, `diff`, `merge`, `rename`), pack format improvements, staleness detection, and session ID pinning.
 
@@ -276,6 +298,16 @@ Yes. Commit the `.claude/handoffs/` folder to your repo. Anyone who loads your p
 
 **What happens to old packs?**
 They accumulate in `~/.claude/handoffs/`. Use `/context-handoff list` to browse and `/context-handoff delete` to clean up.
+
+---
+
+## Upgrading
+
+```bash
+cd ~/.claude/skills/context-handoff && git pull
+```
+
+Pack format is backwards-compatible. Packs created in v1.0 and v1.1 load without changes.
 
 ---
 

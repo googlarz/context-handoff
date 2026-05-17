@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # context-handoff: install PostToolUse hook for automatic pack updates on git commit
 
 set -e
@@ -43,6 +43,8 @@ if command -v jq &>/dev/null; then
 EOF
 )
   # Deep merge: existing settings + new hook
+  TMPFILE=$(mktemp)
+  echo "$HOOK_JSON" > "$TMPFILE"
   MERGED=$(jq -s '
     .[0] as $existing |
     .[1] as $new |
@@ -54,7 +56,8 @@ EOF
         )
       }
     }
-  ' "$SETTINGS_FILE" <(echo "$HOOK_JSON"))
+  ' "$SETTINGS_FILE" "$TMPFILE")
+  rm -f "$TMPFILE"
 
   echo "$MERGED" > "$SETTINGS_FILE"
   echo "✓ Hook installed via jq merge"
@@ -86,3 +89,6 @@ fi
 echo ""
 echo "Done. Restart Claude Code for the hook to take effect."
 echo "Packs will be saved to: ~/.claude/handoffs/"
+echo ""
+echo "To install for a specific project only (instead of globally), run:"
+echo "  SETTINGS_FILE=.claude/settings.json sh scripts/install-hook.sh"
