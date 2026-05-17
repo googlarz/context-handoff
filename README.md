@@ -1,6 +1,6 @@
 # context-handoff
 
-![version](https://img.shields.io/badge/version-1.4.0-blue)
+![version](https://img.shields.io/badge/version-1.5.0-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![skill](https://img.shields.io/badge/Claude%20Code-skill-orange)
 
@@ -36,7 +36,8 @@ The worst part isn't the summary — it's the **ruled-out list**. The things tha
 ## How it works
 
 ```
-Session starts   →  /context-handoff load
+Session starts   →  /context-handoff (or /context-handoff load)
+                    smart-routes to resume or save
                     restores contracts, decisions, work state, open threads
                          │
                          ▼
@@ -135,6 +136,7 @@ Load a specific session by name.
 
 | Command | Description |
 |---------|-------------|
+| `/context-handoff` | Smart-route: resume active session, or offer to create one |
 | `/context-handoff help` | Show all commands grouped by category — in-session reference |
 | `/context-handoff setup` | Interactive first-time setup wizard |
 | `/context-handoff doctor` | Verify hook, directories, active session, and skill version |
@@ -296,6 +298,8 @@ They're complementary, not competing. Use both.
 ---
 
 ## What's next (v2.0)
+
+**v1.5.0 shipped:** No-arg smart routing (`/context-handoff` alone resumes or offers to save), proactive packing offer at natural session endpoints (20 turns, closing phrases, milestone completion), first-time onboarding message on first command, visible save confirmations show pack topic.
 
 **v1.4.0 shipped:** `doctor` command (verifies full install health), `notes` list command, `version` command, tag management (`tag`, `--tag` filter on `list`), `search` now covers notes and artifacts, `contracts` edit flow fully specced, `setup` wizard references install script correctly.
 

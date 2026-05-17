@@ -1,6 +1,6 @@
 ---
 name: context-handoff
-version: "1.4.0"
+version: "1.5.0"
 description: Session continuity for Claude — pack your current session state and load it into any new conversation with full context, decisions, behavioral contracts, and work state restored. Auto-updates on commits, decisions, and every 5 turns.
 tags: [session-continuity, context, handoff, productivity]
 author: googlarz
@@ -18,6 +18,7 @@ All commands that prompt for confirmation accept `--yes` / `-y` to skip. See the
 
 | Command | What it does |
 |---------|-------------|
+| `/context-handoff` | Smart-route: resume active session or offer to create one |
 | `/context-handoff pack [--project]` | Create a context pack from the current session |
 | `/context-handoff load [--quiet] [--project] [--state-only] [--contracts-only]` | Load a context pack at the start of a new session |
 | `/context-handoff update` | Force-write an update to the current session's pack |
@@ -43,6 +44,38 @@ All commands that prompt for confirmation accept `--yes` / `-y` to skip. See the
 | `/context-handoff doctor` | Check hook installation, dirs, active session, and skill version |
 | `/context-handoff version` | Show the installed skill version |
 | `/context-handoff help` | Show a compact in-session command reference |
+
+---
+
+## No-argument invocation
+
+When `/context-handoff` is invoked with no subcommand, smart-route based on session state:
+
+1. Check `~/.claude/handoffs/.active` and `.claude/handoffs/.active`
+2. **Active pack found (updated < 4 hours ago):**
+   > "Resume **[topic]** from [X ago]? (y/n)"
+   - **Yes:** run `/context-handoff load [pack]`
+   - **No:** ask "Create a new session pack instead? (y/n)" — if yes, run `/context-handoff pack`
+3. **No active pack (or stale):**
+   > "No active session. Save this conversation as a context pack? (y/n)"
+   - **Yes:** run `/context-handoff pack`
+   - **No:** show `/context-handoff help`
+
+This is the recommended entry point for users who don't remember command names.
+
+---
+
+## First-time onboarding
+
+When any `/context-handoff` command is invoked and `~/.claude/handoffs/` does not exist:
+
+Show this exactly once before executing the command:
+
+> **context-handoff** — saves your session (decisions, work state, what was ruled out, how you like to work) and restores it in any new conversation. Run `/context-handoff help` to see all commands.
+
+Then execute the original command. Never show this message again once the directory exists.
+
+This ensures first-time users understand what they're getting without reading the README first.
 
 ---
 
@@ -508,7 +541,7 @@ Interactive first-time setup wizard. Covers everything in sequence.
    Record the answer as a note — Claude cannot persist settings, so this is informational guidance the user can apply when running `pack` and `load`.
 5. **First pack offer:** Ask: "Want to pack this session now? (y/n)". If yes, run `/context-handoff pack`.
 6. **Summary:** Show what was done and how to get help:
-   > "Setup complete. Type `/context-handoff help` at any time to see all commands."
+   > "Setup complete. Type `/context-handoff` to resume or save a session, or `/context-handoff help` to see all commands."
 
 ---
 
@@ -565,6 +598,7 @@ Shows a compact in-session command reference. No file access needed — render t
 ```
 context-handoff commands
 ════════════════════════
+Tip: /context-handoff with no args → smart resume or save
 
 Session
   pack [--project]          Create a context pack from this session
@@ -649,7 +683,7 @@ When you see `CONTEXT-HANDOFF: commit detected` in hook output (from the PostToo
 2. Update `work_state.plan_position` if a step completed
 3. Append `commit` to `update_triggers`
 4. Write the pack (with write coordination — see below)
-5. Confirm silently: `↻ Pack updated (commit)`
+5. Confirm silently: `↻ [topic] saved (commit)`
 
 ### Trigger 2: Decision detected
 
@@ -659,7 +693,7 @@ A "significant decision" is: choosing an approach over alternatives, ruling out 
 
 Additionally, if a new communication preference or anti-pattern has been observed (pushback recorded, explicit preference stated), update the relevant `communication_style` field at the same time.
 
-Confirm silently: `↻ Pack updated (decision)`
+Confirm silently: `↻ [topic] saved (decision)`
 
 ### Trigger 3: Turn cadence
 
@@ -669,7 +703,7 @@ Count your own responses (assistant turns) since `last_updated`. After every 5 a
 
 If a new communication preference or anti-pattern has been observed since the last update, update the relevant `communication_style` field during the cadence update as well.
 
-Confirm silently: `↻ Pack updated (turn 5)`
+Confirm silently: `↻ [topic] saved (turn [N])`
 
 ### Failure detection
 
@@ -929,6 +963,23 @@ On `load`, if the current `CLAUDE.md` differs from what was seeded (or is absent
 Packs can reference prior packs for full lineage via `prior_session`. This field is auto-populated on pack creation when a valid `.active` session exists. On load, Claude may offer to also load the prior session for deeper context, but does not do so automatically.
 
 Forked packs reference their origin via `forked_from` (set automatically by `/context-handoff fork`).
+
+---
+
+## Proactive session packing
+
+When no pack exists for the current session (no `.active` file), proactively offer to pack at these natural endpoints:
+
+- **Session length:** The conversation has exceeded 20 assistant turns
+- **Natural close:** User says "done", "wrapping up", "that's all", "bye", "thanks", "ending session", "good enough for now", or similar closing phrases
+- **Milestone:** A feature ships, a bug is fixed, a significant decision is finalized, a task is fully completed
+
+**Offer exactly once per session:**
+> "Want me to save this session? I can pack the decisions, work state, and context so you can resume exactly here later. (y/n)"
+
+If the user says no, do not offer again this session. If the user says yes, run `/context-handoff pack`.
+
+Do NOT offer if a pack is already active (`.active` exists and is fresh).
 
 ---
 
