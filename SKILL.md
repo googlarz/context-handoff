@@ -1,6 +1,6 @@
 ---
 name: context-handoff
-version: "1.2.1"
+version: "1.3.2"
 description: Session continuity for Claude — pack your current session state and load it into any new conversation with full context, decisions, behavioral contracts, and work state restored. Auto-updates on commits, decisions, and every 5 turns.
 tags: [session-continuity, context, handoff, productivity]
 author: googlarz
@@ -14,28 +14,31 @@ Works for you, your future self, your teammates, and parallel Claude sessions.
 
 ## Commands
 
+All commands that prompt for confirmation accept `--yes` / `-y` to skip. See the [Aliases](#aliases) section for shorthand forms.
+
 | Command | What it does |
 |---------|-------------|
 | `/context-handoff pack [--project]` | Create a context pack from the current session |
-| `/context-handoff load [--project] [--state-only] [--contracts-only]` | Load a context pack at the start of a new session |
+| `/context-handoff load [--quiet] [--project] [--state-only] [--contracts-only]` | Load a context pack at the start of a new session |
 | `/context-handoff update` | Force-write an update to the current session's pack |
 | `/context-handoff status` | Quick health check for the current session |
 | `/context-handoff list [query] [--all] [--limit <n>]` | List packs (global + project), optionally filtered; defaults to 20 most recent |
 | `/context-handoff open <pack> [--full]` | View a pack's summary and first 40 lines without loading it |
 | `/context-handoff search [--project] <query>` | Search pack content across all packs (or project-only with --project) |
-| `/context-handoff delete [--dry-run] <pack>` | Delete a named pack after confirmation |
-| `/context-handoff close <thread>` | Mark an open thread as resolved |
+| `/context-handoff threads [--project]` | All open threads across packs, sorted by priority |
 | `/context-handoff add-thread <text> [--priority high\|medium\|low]` | Add an open thread to the active pack |
+| `/context-handoff close <thread>` | Mark an open thread as resolved |
+| `/context-handoff note <text>` | Add a quick observation to the active pack |
 | `/context-handoff contracts` | View and edit active behavioral contracts |
-| `/context-handoff threads [--project]` | Show all open threads across all packs (or project-only) |
+| `/context-handoff amend-decision <partial-what>` | Edit an existing decision's reasoning in the active pack |
 | `/context-handoff diff [--vs-current] [pack1] [pack2]` | Compare two packs, or a pack against current git state |
 | `/context-handoff merge [--dry-run] <pack1> <pack2> [output-name]` | Merge two packs into a combined pack |
 | `/context-handoff rename <pack> <new-name>` | Rename a pack and update its topic field |
 | `/context-handoff archive [--project] [--older-than <days>]` | Move old packs to archive/ subdirectory |
 | `/context-handoff fork [--project] <pack> [<new-name>]` | Create a variant of an existing pack for a parallel approach |
-| `/context-handoff export <pack> [--format markdown\|json] [--output <file>]` | Export a pack to a clean shareable format without YAML frontmatter |
-| `/context-handoff amend-decision <partial-what>` | Edit an existing decision's why or superseded_by in the active pack |
-| `/context-handoff note <text>` | Add a quick unstructured observation to the active pack |
+| `/context-handoff export <pack> [--format markdown\|json] [--output <file>]` | Export a pack to a clean shareable format |
+| `/context-handoff setup` | Interactive first-time setup wizard |
+| `/context-handoff help` | Show a compact in-session command reference |
 
 ---
 
@@ -74,7 +77,7 @@ Synthesize the current conversation into a context pack file.
 
 ---
 
-## `/context-handoff load [--project] [--state-only] [--contracts-only]`
+## `/context-handoff load [--quiet] [--project] [--state-only] [--contracts-only]`
 
 Load a context pack at the start of a new session.
 
@@ -83,10 +86,13 @@ Load a context pack at the start of a new session.
 - `--project`: load from `.claude/handoffs/` inside the current git repo. If not in a git repo: error "Not in a git repo — cannot use --project scope"
 
 **Flags:**
+- `--quiet` / `-q`: skip all browsing steps (no contract listing, no thread listing, no git log, no contract-check question). Just show one line and proceed:
+  > "Loaded: **[topic]** (saved [date], [update_count] updates). Resuming from: [resume_point]."
 - `--state-only`: restore only `work_state`, `resume_point`, and `open_threads` — skips behavioral contracts and communication style. Useful when you want to know where you left off without changing how Claude behaves.
 - `--contracts-only`: restore only behavioral contracts and communication style, skipping work state and decisions. Useful when starting a fresh task but wanting to preserve working style.
+- `--yes` / `-y`: in default (non-quiet) mode, skips the "any contracts no longer apply?" question but still shows contracts and threads. Combined with `--quiet`, has no additional effect (quiet is already fully silent).
 
-**Steps:**
+**Steps (default mode):**
 1. **Stale `.active` check:** Only trigger this when NO specific pack name was given. If `.active` already exists and the `last_updated` timestamp in that pack file is more than 4 hours old, surface it before proceeding:
    > "Previous session detected: [topic] (last updated X hours ago). Load it, discard it, or ignore and continue?"
    - **Load:** run `/context-handoff load` with that pack
@@ -113,7 +119,7 @@ Load a context pack at the start of a new session.
    - If no `CLAUDE.md` exists but the pack has `[CLAUDE.md]`-prefixed contracts, flag them:
      > "⚠ This pack has contracts sourced from a CLAUDE.md that isn't present in this directory."
 8. Unless `--state-only` is set: **explicitly re-establish each behavioral contract** — state them out loud so the user can correct anything wrong. Note any contracts prefixed with `[CLAUDE.md]` as "from project config — may differ if you're in a different project."
-9. Ask: "Any of these no longer apply?" If the user names one, remove it from `behavioral_contracts` and write the pack.
+9. Unless `--yes` / `-y` is set: ask "Any of these no longer apply?" If the user names one, remove it from `behavioral_contracts` and write the pack.
 10. Unless `--contracts-only` is set: restore work state awareness: goal, files touched, plan position. Surface superseded decisions as struck-through context so the receiver understands the evolution.
 11. Acknowledge the load:
     > "Loaded: **[topic]** (saved [date], [update_count] updates). Resuming from: [resume_point]."
@@ -122,6 +128,8 @@ Load a context pack at the start of a new session.
     > `4 commits since this pack was last updated: [list]`
 14. Write the session marker: `<dir>/.active` → `session_id|/full/path/to/pack.md|last_updated_timestamp`
 15. Proceed — do not ask "ready to continue?", just continue
+
+**`--quiet` mode** skips steps 8–13 entirely. After step 7, emit the single summary line and jump to step 14.
 
 ---
 
@@ -186,13 +194,26 @@ Accept partial name match if unambiguous.
 
 ## `/context-handoff search [--project] <query>`
 
-Search pack content across all packs (topic, decisions, ruled_out, open_threads). Show matching packs with the matching excerpt.
+Search pack content across all packs (topic, decisions, ruled_out, open_threads). Show matching packs with structured results.
 
 **Scope:**
 - Default (no flag): searches both `~/.claude/handoffs/` and `.claude/handoffs/` (if it exists)
 - `--project`: searches only `.claude/handoffs/` inside the current git repo
 
-Implementation: `grep -r -n -B1 -A2 "<query>" <dir>/*.md` — returns matching lines with context, not just filenames. Show: filename, line number, matched line, 2 lines after.
+**Output format:**
+
+```
+Search: "semgrep" — 3 matches
+
+vibe-safe-release (2026-05-16)
+  decisions: "add 3 optional tool integrations (semgrep, bandit, eslint-security)..."
+  ruled_out: "making semgrep a hard requirement..."
+
+codebase-onboarding (2026-05-14)
+  open_threads: "evaluate semgrep integration for CI..."
+```
+
+Pack name + date as header, matched field label + truncated excerpt per match. No file paths. No line numbers.
 
 ---
 
@@ -203,6 +224,8 @@ Delete a named pack after confirmation. Accept partial name match if unambiguous
 Show the pack's topic, last_updated, and update_count before confirming.
 
 `--dry-run`: show what would be deleted (topic, last_updated, update_count) without deleting — "would delete this pack."
+
+Accepts `--yes` / `-y` to skip the confirmation prompt.
 
 On confirm (without `--dry-run`), delete the file and confirm deletion.
 
@@ -250,22 +273,27 @@ Show currently active behavioral contracts from the loaded pack.
 
 ## `/context-handoff threads [--project]`
 
-Show all open threads across all packs, grouped by pack, with age (time since `last_updated`).
+Show all open threads across all packs, sorted by priority globally (not grouped by pack).
 
 **Scope:**
 - Default (no flag): shows threads from both `~/.claude/handoffs/` and `.claude/handoffs/` (if it exists)
 - `--project`: shows only threads from `.claude/handoffs/` inside the current git repo
 
-```
-vibe-safe-release (3 days old)
-  [high] README needs v1.9.0 test evidence
-  [medium] GitHub profile README shows old numbers
+**Output format:**
 
-llmessenger-auth (12 days old)
-  [low] consider rate limiting docs
+```
+Open threads — 6 total (2 high, 3 medium, 1 low)
+═══════════════════════════════════════════════
+
+[high]   README needs v1.9.0 test evidence          vibe-safe-release · 3d ago
+[high]   auth flow blocked on rate limiter decision  llmessenger-auth  · 1d ago
+[medium] GitHub profile README shows old numbers     vibe-safe-release · 3d ago
+[medium] consider CONTRIBUTING.md                    codebase-onboarding · 8d ago
+[medium] rate limiting docs                          llmessenger-auth  · 1d ago
+[low]    add diagram to README                       context-handoff   · 2h ago
 ```
 
-Useful for finding stale unresolved work.
+Pack name is right-aligned context, not the primary grouping. High priority items always surface first regardless of which pack they're in. Age shown is time since the thread was added.
 
 ---
 
@@ -303,6 +331,8 @@ Merge context from two packs into a new combined pack.
 
 `--dry-run`: show the merged result in the terminal without writing a file.
 
+Accepts `--yes` / `-y` to skip the confirmation prompt (conflicts are still surfaced — `--yes` only skips the "proceed with merge?" step).
+
 **Output file:** `~/.claude/handoffs/YYYY-MM-DD-<topic1>-<topic2>-merged.md`. If the combined topic slug (from `<topic1>-<topic2>-merged`) exceeds 40 characters, truncate to 40 chars. If an optional `[output-name]` is given, use that as the slug instead (also truncated to 40 chars if needed).
 
 Confirm the output path after writing.
@@ -328,7 +358,7 @@ Move old packs to `~/.claude/handoffs/archive/` (or `.claude/handoffs/archive/` 
 **Steps:**
 1. Default threshold: 30 days since `last_updated`. `--older-than <days>` overrides this.
 2. Show the user what would be archived BEFORE moving (dry-run preview).
-3. Ask for confirmation.
+3. Ask for confirmation. Accepts `--yes` / `-y` to skip.
 4. Move matching files to the `archive/` subdirectory, create it if needed.
 5. Confirm: "Archived N packs to ~/.claude/handoffs/archive/"
 
@@ -353,10 +383,14 @@ Create a variant of an existing pack for a parallel approach, preserving full li
 3. Clear `work_state.plan_position` in the fork (start fresh on plan position).
 4. **Open threads:** After copying, before confirming, ask:
    > "Keep N open threads from original? (y/n)"
+   Accepts `--yes` / `-y` to skip (threads are kept).
    - **Yes:** threads are kept as-is in the fork
    - **No:** `open_threads` is cleared in the fork (`closed_threads` is untouched)
 5. Do NOT overwrite `.active` — the fork is not automatically loaded.
-6. Confirm: "Fork created: [path]. Use `/context-handoff load <name>` to switch to it."
+6. Confirm: "Fork created: [path]."
+7. Immediately ask: "Switch to the fork now? (y/n)"
+   - **Yes:** run `/context-handoff load <fork-name>` — the fork becomes the active session
+   - **No:** confirm the fork path and leave the original as active
 
 ---
 
@@ -369,8 +403,12 @@ Export a pack to a clean shareable format without YAML frontmatter.
 - `--format json`: produces a JSON object with all YAML fields plus the human-layer sections parsed out.
 
 **Output:**
-- Default: write to stdout (so it can be piped or copied to clipboard)
-- `--output <file>`: write to the specified file path instead
+- Default (no `--output`): if `pbcopy` is available (macOS), pipe to `pbcopy` and confirm:
+  > "Copied to clipboard: [topic] — [format] format"
+- Default (no `pbcopy`, Linux/other): write to stdout with a note:
+  > "Output (paste into your destination):"
+  [content]
+- `--output <file>`: always write to the specified file path, regardless of platform.
 
 Accept partial name match for `<pack>` if unambiguous.
 
@@ -404,6 +442,92 @@ Add a quick unstructured observation to the active pack. Lower overhead than a t
        when: "ISO timestamp"
    ```
 3. Write the pack silently — no confirmation needed (lightweight operation).
+
+---
+
+## `/context-handoff setup`
+
+Interactive first-time setup wizard. Covers everything in sequence.
+
+**Steps:**
+1. **Already configured check:** Look for the commit hook in `~/.claude/settings.json` (search for "CONTEXT-HANDOFF") and check if `~/.claude/handoffs/` exists. If both are present: "Already configured. Run `/context-handoff doctor` to verify." and exit.
+2. **Hook installation:** Check if the commit hook is installed. If not, ask:
+   > "Install the PostToolUse hook for auto-updates on git commit? (y/n)"
+   If yes, insert the hook JSON into `~/.claude/settings.json` (same JSON as shown in the Hook Setup section below).
+3. **Directory creation:** Create `~/.claude/handoffs/` if it doesn't exist.
+4. **Scope preference:** Ask:
+   > "Where should packs be saved by default? [1] global: ~/.claude/handoffs/ or [2] project: .claude/handoffs/ in each repo?"
+   Record the answer as a note — Claude cannot persist settings, so this is informational guidance the user can apply when running `pack` and `load`.
+5. **First pack offer:** Ask: "Want to pack this session now? (y/n)". If yes, run `/context-handoff pack`.
+6. **Summary:** Show what was done and how to get help:
+   > "Setup complete. Type `/context-handoff help` at any time to see all commands."
+
+---
+
+## `/context-handoff help`
+
+Shows a compact in-session command reference. No file access needed — render this inline.
+
+```
+context-handoff commands
+════════════════════════
+
+Session
+  pack [--project]          Create a context pack from this session
+  load [--quiet] [--project] [--state-only] [--contracts-only]
+                            Restore a pack into a new session
+  update                    Force-write a pack update
+  status                    Quick health check for active session
+
+Browsing
+  list [--all] [--limit n]  List packs (default: 20 most recent)
+  open <name> [--full]      View a pack without loading it
+  search [--project] <q>    Search pack content
+  threads [--project]       All open threads, sorted by priority
+
+Editing
+  add-thread <text> [--priority high|medium|low]
+  close <thread>            Resolve an open thread
+  note <text>               Add a quick observation
+  contracts                 View/edit behavioral contracts
+  amend-decision <text>     Edit a decision's reasoning
+
+Pack management
+  rename <pack> <new>       Rename a pack
+  delete [--dry-run] <pack> Delete a pack
+  archive [--older-than n]  Move old packs to archive/
+  fork [--project] <pack>   Create a parallel variant
+  merge [--dry-run] <a> <b> Combine two packs
+  diff [--vs-current] ...   Compare packs
+
+Sharing
+  export <pack> [--format markdown|json] [--output file]
+
+Setup
+  setup                     Interactive first-time setup wizard
+  doctor                    Verify hook, dirs, active session
+
+Flags available on all commands:
+  --yes / -y                Skip confirmation prompts
+  --project                 Use .claude/handoffs/ (project scope)
+```
+
+---
+
+## Aliases
+
+Claude recognises the following aliases as equivalent to their canonical command:
+
+| Canonical | Alias(es) |
+|-----------|-----------|
+| `pack` | `save`, `snapshot` |
+| `load` | `resume` |
+| `contracts` | `rules`, `prefs` |
+| `add-thread` | `open-thread`, `thread` |
+| `close` | `close-thread`, `resolve` |
+| `note` | `observe` |
+
+Example: `/context-handoff resume` is identical to `/context-handoff load`.
 
 ---
 
@@ -448,6 +572,13 @@ Count your own responses (assistant turns) since `last_updated`. After every 5 a
 If a new communication preference or anti-pattern has been observed since the last update, update the relevant `communication_style` field during the cadence update as well.
 
 Confirm silently: `↻ Pack updated (turn 5)`
+
+### Failure detection
+
+If no auto-update has fired in the current session and more than 15 assistant turns have passed, emit once:
+> `⚠ No auto-updates recorded this session. Check hook installation with /context-handoff doctor or run /context-handoff update manually.`
+
+This warning fires at most once per session. Do not repeat.
 
 ### Update behavior
 
@@ -665,14 +796,14 @@ bash ~/.claude/skills/context-handoff/scripts/install-hook.sh
 
 ## On Load: Behavioral Contract Restoration
 
-When loading a pack (unless `--state-only` is set), re-establish contracts explicitly. State them so the user can correct anything stale:
+When loading a pack (unless `--state-only` or `--quiet` is set), re-establish contracts explicitly. State them so the user can correct anything stale:
 
 > "Restoring behavioral contracts from last session:
 > - [contract 1]
 > - [contract 2] *(from CLAUDE.md — may differ in a different project)*
 > Let me know if anything has changed."
 
-Then ask: "Any of these no longer apply?" If the user names one, remove it from `behavioral_contracts` and write the pack. Otherwise proceed — don't wait for confirmation.
+Then ask: "Any of these no longer apply?" (skipped if `--yes` / `-y` is set). If the user names one, remove it from `behavioral_contracts` and write the pack. Otherwise proceed — don't wait for confirmation.
 
 ---
 

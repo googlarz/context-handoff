@@ -1,6 +1,6 @@
 # context-handoff
 
-![version](https://img.shields.io/badge/version-1.2.1-blue)
+![version](https://img.shields.io/badge/version-1.3.2-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![skill](https://img.shields.io/badge/Claude%20Code-skill-orange)
 
@@ -89,6 +89,20 @@ Then add the skill to your Claude Code project or global settings:
 
 ## Usage
 
+### First-time setup
+
+```
+/context-handoff setup
+```
+
+Walks you through hook installation, directory creation, and creates your first pack. Run once after installing.
+
+```
+/context-handoff help
+```
+
+Shows all commands grouped by category. Run any time you forget a command.
+
 ### Start a session, pack it at the end
 
 ```
@@ -121,6 +135,8 @@ Load a specific session by name.
 
 | Command | Description |
 |---------|-------------|
+| `/context-handoff help` | Show all commands grouped by category — in-session reference |
+| `/context-handoff setup` | Interactive first-time setup wizard |
 | `/context-handoff list` | List all packs. Accepts an optional search term: `list auth` |
 | `/context-handoff search <query>` | Full-text search across all pack content |
 | `/context-handoff delete <name>` | Delete a pack by name. Accepts `--dry-run` |
@@ -140,6 +156,8 @@ Load a specific session by name.
 | `/context-handoff note <text>` | Add a quick observation to the active pack (lighter-weight than a thread) |
 
 Commands that accept `--project`: `pack`, `load`, `archive`, `fork`, `search`, `threads` — saves/reads from `.claude/handoffs/` inside the git repo instead of `~/.claude/handoffs/`.
+
+> Common aliases: `save` = `pack`, `resume` = `load`, `rules` = `contracts`, `thread` = `add-thread`, `resolve` = `close`.
 
 `load` also accepts `--state-only` to restore work state without re-establishing behavioral contracts.
 
@@ -274,6 +292,8 @@ They're complementary, not competing. Use both.
 ---
 
 ## What's next (v2.0)
+
+**v1.3.2 shipped:** `setup` wizard, `help` command, `--quiet` load, `--yes` flag, command aliases, formatted search output, global thread priority sort.
 
 **v1.2.1 shipped:** same-topic pack detection, scope consistency across all commands, `export`/`amend-decision`/`note`, `prior_session` auto-link, `CLAUDE.md` check on load.
 
