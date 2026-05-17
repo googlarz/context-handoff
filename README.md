@@ -1,6 +1,6 @@
 # context-handoff
 
-![version](https://img.shields.io/badge/version-1.2.0-blue)
+![version](https://img.shields.io/badge/version-1.2.1-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![skill](https://img.shields.io/badge/Claude%20Code-skill-orange)
 
@@ -135,6 +135,11 @@ Load a specific session by name.
 | `/context-handoff add-thread <text>` | Add an open thread to the active pack. Accepts `--priority high\|medium\|low` |
 | `/context-handoff archive` | Move packs not updated in 30+ days to `archive/`. Accepts `--older-than <days>` |
 | `/context-handoff fork <name>` | Create a variant of a pack for a parallel approach, preserving lineage |
+| `/context-handoff export <name>` | Export pack to clean markdown or JSON — no YAML, shareable with anyone |
+| `/context-handoff amend-decision <text>` | Edit an existing decision's reasoning or mark it superseded |
+| `/context-handoff note <text>` | Add a quick observation to the active pack (lighter-weight than a thread) |
+
+Commands that accept `--project`: `pack`, `load`, `archive`, `fork`, `search`, `threads` — saves/reads from `.claude/handoffs/` inside the git repo instead of `~/.claude/handoffs/`.
 
 `load` also accepts `--state-only` to restore work state without re-establishing behavioral contracts.
 
@@ -269,6 +274,8 @@ They're complementary, not competing. Use both.
 ---
 
 ## What's next (v2.0)
+
+**v1.2.1 shipped:** same-topic pack detection, scope consistency across all commands, `export`/`amend-decision`/`note`, `prior_session` auto-link, `CLAUDE.md` check on load.
 
 **v1.2.0 shipped:** `status`, `open`, `add-thread`, `archive`, `fork` commands; `diff --vs-current`, `load --state-only`, `delete/merge --dry-run` flags; merge conflict detection; CLAUDE.md contract seeding; stale session detection; structured `communication_style` field in pack format.
 

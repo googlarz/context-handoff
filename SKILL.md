@@ -1,6 +1,6 @@
 ---
 name: context-handoff
-version: "1.2.0"
+version: "1.2.1"
 description: Session continuity for Claude — pack your current session state and load it into any new conversation with full context, decisions, behavioral contracts, and work state restored. Auto-updates on commits, decisions, and every 5 turns.
 tags: [session-continuity, context, handoff, productivity]
 author: googlarz
@@ -20,19 +20,22 @@ Works for you, your future self, your teammates, and parallel Claude sessions.
 | `/context-handoff load [--project] [--state-only] [--contracts-only]` | Load a context pack at the start of a new session |
 | `/context-handoff update` | Force-write an update to the current session's pack |
 | `/context-handoff status` | Quick health check for the current session |
-| `/context-handoff list [query]` | List all packs (global + project), optionally filtered |
-| `/context-handoff open <pack>` | View a pack's human-readable layer without loading it |
-| `/context-handoff search <query>` | Search pack content across all packs |
+| `/context-handoff list [query] [--all] [--limit <n>]` | List packs (global + project), optionally filtered; defaults to 20 most recent |
+| `/context-handoff open <pack> [--full]` | View a pack's summary and first 40 lines without loading it |
+| `/context-handoff search [--project] <query>` | Search pack content across all packs (or project-only with --project) |
 | `/context-handoff delete [--dry-run] <pack>` | Delete a named pack after confirmation |
 | `/context-handoff close <thread>` | Mark an open thread as resolved |
 | `/context-handoff add-thread <text> [--priority high\|medium\|low]` | Add an open thread to the active pack |
 | `/context-handoff contracts` | View and edit active behavioral contracts |
-| `/context-handoff threads` | Show all open threads across all packs |
+| `/context-handoff threads [--project]` | Show all open threads across all packs (or project-only) |
 | `/context-handoff diff [--vs-current] [pack1] [pack2]` | Compare two packs, or a pack against current git state |
-| `/context-handoff merge [--dry-run] <pack1> <pack2>` | Merge two packs into a combined pack |
+| `/context-handoff merge [--dry-run] <pack1> <pack2> [output-name]` | Merge two packs into a combined pack |
 | `/context-handoff rename <pack> <new-name>` | Rename a pack and update its topic field |
-| `/context-handoff archive [--older-than <days>]` | Move old packs to archive/ subdirectory |
-| `/context-handoff fork <pack> [<new-name>]` | Create a variant of an existing pack for a parallel approach |
+| `/context-handoff archive [--project] [--older-than <days>]` | Move old packs to archive/ subdirectory |
+| `/context-handoff fork [--project] <pack> [<new-name>]` | Create a variant of an existing pack for a parallel approach |
+| `/context-handoff export <pack> [--format markdown\|json] [--output <file>]` | Export a pack to a clean shareable format without YAML frontmatter |
+| `/context-handoff amend-decision <partial-what>` | Edit an existing decision's why or superseded_by in the active pack |
+| `/context-handoff note <text>` | Add a quick unstructured observation to the active pack |
 
 ---
 
@@ -52,15 +55,20 @@ Synthesize the current conversation into a context pack file.
    - **Load:** run `/context-handoff load` with that pack
    - **Discard:** delete `.active` and proceed
    - **Ignore:** proceed without clearing `.active` (user manages it)
-4. Generate the pack file at `<dir>/YYYY-MM-DD-<topic-slug>.md`
-5. **CLAUDE.md seeding:** Before synthesizing behavioral contracts from the session:
+4. **Same-topic detection:** Before generating the new pack file, compute the topic slug for the new pack. Check whether any file matching `*-<topic-slug>.md` already exists in the target directory. If found, surface it before proceeding:
+   > "A pack for this topic already exists: 2026-05-16-vibe-safe-release.md (last updated X ago, N updates). Update it or create a new one?"
+   - **Update:** run `/context-handoff update` on that pack (rewrite with current session state, increment `update_count`)
+   - **New:** proceed with creating a new dated file
+5. **prior_session auto-population:** If `.active` exists and is valid (not stale), set `prior_session` in the new pack's frontmatter to the path of the currently active pack before writing.
+6. Generate the pack file at `<dir>/YYYY-MM-DD-<topic-slug>.md`
+7. **CLAUDE.md seeding:** Before synthesizing behavioral contracts from the session:
    a. Check if `CLAUDE.md` exists in the current directory or `~/.claude/CLAUDE.md`
    b. If found, read it and extract any behavioral instructions (style, process, constraints)
    c. Seed these into `behavioral_contracts` prefixed with `[CLAUDE.md]` so they're distinguishable from session-derived ones
-6. Populate both layers (see Pack Format below)
-7. Write the session marker: `<dir>/.active` → `session_id|/full/path/to/pack.md|last_updated_timestamp`
-8. Confirm: tell the user the file path and that auto-updates are now active
-9. Check if the hook is installed (look for "CONTEXT-HANDOFF" in `~/.claude/settings.json`). If not found, emit once: `⚠ Commit hook not installed — run scripts/install-hook.sh for automatic commit-triggered updates.`
+8. Populate both layers (see Pack Format below)
+9. Write the session marker: `<dir>/.active` → `session_id|/full/path/to/pack.md|last_updated_timestamp`
+10. Confirm: tell the user the file path and that auto-updates are now active
+11. Check if the hook is installed (look for "CONTEXT-HANDOFF" in `~/.claude/settings.json`). If not found, emit once: `⚠ Commit hook not installed — run scripts/install-hook.sh for automatic commit-triggered updates.`
 
 **Session ID:** Generate as `ch-YYYYMMDD-<4-char-random>` and store in the pack frontmatter.
 
@@ -79,11 +87,12 @@ Load a context pack at the start of a new session.
 - `--contracts-only`: restore only behavioral contracts and communication style, skipping work state and decisions. Useful when starting a fresh task but wanting to preserve working style.
 
 **Steps:**
-1. **Stale session check:** If `.active` already exists and the `last_updated` timestamp in that pack file is more than 4 hours old, surface it before proceeding:
+1. **Stale `.active` check:** Only trigger this when NO specific pack name was given. If `.active` already exists and the `last_updated` timestamp in that pack file is more than 4 hours old, surface it before proceeding:
    > "Previous session detected: [topic] (last updated X hours ago). Load it, discard it, or ignore and continue?"
    - **Load:** run `/context-handoff load` with that pack
    - **Discard:** delete `.active` and proceed
    - **Ignore:** proceed without clearing `.active` (user manages it)
+   If a specific pack name was given (`/context-handoff load vibe-safe-release`), skip this check entirely and load the requested pack directly.
 2. If a file path is given, load that file. Otherwise list the 5 most recent packs with a one-line summary per pack and ask the user to choose:
    ```
    1. 2026-05-16 · vibe-safe-release · 9 updates · 3 open threads
@@ -96,16 +105,23 @@ Load a context pack at the start of a new session.
    > `⚠ This pack is X days old (last updated YYYY-MM-DD). Resume point and open threads may be stale.`
    Continue loading regardless.
 6. Parse the AI YAML layer
-7. Unless `--state-only` is set: **explicitly re-establish each behavioral contract** — state them out loud so the user can correct anything wrong. Note any contracts prefixed with `[CLAUDE.md]` as "from project config — may differ if you're in a different project."
-8. Ask: "Any of these no longer apply?" If the user names one, remove it from `behavioral_contracts` and write the pack.
-9. Unless `--contracts-only` is set: restore work state awareness: goal, files touched, plan position. Surface superseded decisions as struck-through context so the receiver understands the evolution.
-10. Acknowledge the load:
+7. **CLAUDE.md check:** After parsing the YAML layer:
+   - Check if a `CLAUDE.md` exists in the current directory or `~/.claude/CLAUDE.md`
+   - Compare its behavioral instructions against the `[CLAUDE.md]`-prefixed contracts in the pack
+   - If the current `CLAUDE.md` differs from what was seeded (new instructions, removed instructions), surface the diff:
+     > "CLAUDE.md has changed since this pack was created. New instruction: '[text]'. Add to behavioral contracts? (y/n)"
+   - If no `CLAUDE.md` exists but the pack has `[CLAUDE.md]`-prefixed contracts, flag them:
+     > "⚠ This pack has contracts sourced from a CLAUDE.md that isn't present in this directory."
+8. Unless `--state-only` is set: **explicitly re-establish each behavioral contract** — state them out loud so the user can correct anything wrong. Note any contracts prefixed with `[CLAUDE.md]` as "from project config — may differ if you're in a different project."
+9. Ask: "Any of these no longer apply?" If the user names one, remove it from `behavioral_contracts` and write the pack.
+10. Unless `--contracts-only` is set: restore work state awareness: goal, files touched, plan position. Surface superseded decisions as struck-through context so the receiver understands the evolution.
+11. Acknowledge the load:
     > "Loaded: **[topic]** (saved [date], [update_count] updates). Resuming from: [resume_point]."
-11. List any open threads (with priority if set)
-12. If the current directory is a git repo, run `git log --oneline` since `last_updated` and surface it:
+12. List any open threads (with priority if set)
+13. If the current directory is a git repo, run `git log --oneline` since `last_updated` and surface it:
     > `4 commits since this pack was last updated: [list]`
-13. Write the session marker: `<dir>/.active` → `session_id|/full/path/to/pack.md|last_updated_timestamp`
-14. Proceed — do not ask "ready to continue?", just continue
+14. Write the session marker: `<dir>/.active` → `session_id|/full/path/to/pack.md|last_updated_timestamp`
+15. Proceed — do not ask "ready to continue?", just continue
 
 ---
 
@@ -137,11 +153,13 @@ If no `.active` file: "No active session. Use `/context-handoff pack` or `/conte
 
 ---
 
-## `/context-handoff list [query]`
+## `/context-handoff list [query] [--all] [--limit <n>]`
 
-List all packs in `~/.claude/handoffs/` and the project-local `.claude/handoffs/` (if it exists), sorted by most recent. Label each entry `[global]` or `[project]`.
+List packs in `~/.claude/handoffs/` and the project-local `.claude/handoffs/` (if it exists), sorted by most recent. Label each entry `[global]` or `[project]`.
 
 **Output columns:** filename · topic · last_updated · update_count · open thread count · scope
+
+**Defaults:** show the 20 most recent packs. Use `--all` to show all packs. Use `--limit <n>` for a custom count.
 
 **Optional query:** `/context-handoff list vibe-safe` filters by topic/content match.
 
@@ -149,13 +167,16 @@ If no packs exist: "No packs found."
 
 ---
 
-## `/context-handoff open <pack>`
+## `/context-handoff open <pack> [--full]`
 
 View a pack's human-readable layer without loading it.
 
 Shows:
-- A brief YAML summary: topic, last_updated, update_count, open thread count, resume_point
-- The full markdown body (below the YAML frontmatter)
+1. A brief YAML summary: topic, last_updated, update_count, open thread count, resume_point
+2. The first 40 lines of the markdown body (below the YAML frontmatter)
+3. If the file has more lines: `— [N more lines] — Use /context-handoff open <name> --full to see everything`
+
+`--full`: show the complete markdown body without truncation.
 
 Does NOT write to `.active` or restore any state.
 
@@ -163,11 +184,15 @@ Accept partial name match if unambiguous.
 
 ---
 
-## `/context-handoff search <query>`
+## `/context-handoff search [--project] <query>`
 
 Search pack content across all packs (topic, decisions, ruled_out, open_threads). Show matching packs with the matching excerpt.
 
-Implementation: `grep -r -n -B1 -A2 "<query>" ~/.claude/handoffs/*.md` — returns matching lines with context, not just filenames. Show: filename, line number, matched line, 2 lines after.
+**Scope:**
+- Default (no flag): searches both `~/.claude/handoffs/` and `.claude/handoffs/` (if it exists)
+- `--project`: searches only `.claude/handoffs/` inside the current git repo
+
+Implementation: `grep -r -n -B1 -A2 "<query>" <dir>/*.md` — returns matching lines with context, not just filenames. Show: filename, line number, matched line, 2 lines after.
 
 ---
 
@@ -202,9 +227,12 @@ Add an open thread to the active pack.
 
 **Steps:**
 1. Read `~/.claude/handoffs/.active` to get the current pack path. If no active session: error "No active session. Load a pack first."
-2. Append the new thread to `open_threads` with `added_at` timestamp. Default priority: `medium`.
-3. Write the pack.
-4. Confirm: `✓ Thread added: "[text]" [priority]`
+2. **Duplicate detection:** Before appending, check if any existing open thread has text that is >80% similar. Simple heuristic: if the new text shares 3 or more consecutive words with an existing open thread, warn:
+   > "Similar thread already exists: '[existing text]'. Add anyway? (y/n)"
+   If the user answers `n`, abort. If `y`, proceed.
+3. Append the new thread to `open_threads` with `added_at` timestamp. Default priority: `medium`.
+4. Write the pack.
+5. Confirm: `✓ Thread added: "[text]" [priority]`
 
 ---
 
@@ -220,9 +248,13 @@ Show currently active behavioral contracts from the loaded pack.
 
 ---
 
-## `/context-handoff threads`
+## `/context-handoff threads [--project]`
 
 Show all open threads across all packs, grouped by pack, with age (time since `last_updated`).
+
+**Scope:**
+- Default (no flag): shows threads from both `~/.claude/handoffs/` and `.claude/handoffs/` (if it exists)
+- `--project`: shows only threads from `.claude/handoffs/` inside the current git repo
 
 ```
 vibe-safe-release (3 days old)
@@ -242,6 +274,9 @@ Useful for finding stale unresolved work.
 Compare two packs for the same project.
 
 - If only one pack given, diff against the previous pack for the same topic (by filename date prefix)
+- If only one pack given and no prior pack exists for the same topic:
+  > "No prior pack found for topic '[topic]'. Use --vs-current to diff against git state instead."
+  Then offer: "Run diff --vs-current? (y/n)"
 - Show: new decisions since pack1, newly closed threads, changes to work_state, newly ruled-out items
 - Superseded decisions are highlighted
 
@@ -252,7 +287,7 @@ Compare two packs for the same project.
 
 ---
 
-## `/context-handoff merge [--dry-run] <pack1> <pack2>`
+## `/context-handoff merge [--dry-run] <pack1> <pack2> [output-name]`
 
 Merge context from two packs into a new combined pack.
 
@@ -268,7 +303,7 @@ Merge context from two packs into a new combined pack.
 
 `--dry-run`: show the merged result in the terminal without writing a file.
 
-**Output file:** `~/.claude/handoffs/YYYY-MM-DD-<topic1>-<topic2>-merged.md`
+**Output file:** `~/.claude/handoffs/YYYY-MM-DD-<topic1>-<topic2>-merged.md`. If the combined topic slug (from `<topic1>-<topic2>-merged`) exceeds 40 characters, truncate to 40 chars. If an optional `[output-name]` is given, use that as the slug instead (also truncated to 40 chars if needed).
 
 Confirm the output path after writing.
 
@@ -282,9 +317,13 @@ Accept partial name match if unambiguous. Confirm the old and new filename befor
 
 ---
 
-## `/context-handoff archive [--older-than <days>]`
+## `/context-handoff archive [--project] [--older-than <days>]`
 
-Move old packs to `~/.claude/handoffs/archive/` (and `.claude/handoffs/archive/` for project-scoped packs).
+Move old packs to `~/.claude/handoffs/archive/` (or `.claude/handoffs/archive/` when `--project` is set).
+
+**Scope:**
+- Default: archives from `~/.claude/handoffs/`
+- `--project`: archives from `.claude/handoffs/` inside the current git repo
 
 **Steps:**
 1. Default threshold: 30 days since `last_updated`. `--older-than <days>` overrides this.
@@ -295,9 +334,13 @@ Move old packs to `~/.claude/handoffs/archive/` (and `.claude/handoffs/archive/`
 
 ---
 
-## `/context-handoff fork <pack> [<new-name>]`
+## `/context-handoff fork [--project] <pack> [<new-name>]`
 
 Create a variant of an existing pack for a parallel approach, preserving full lineage.
+
+**Scope:**
+- Default: creates the fork in `~/.claude/handoffs/`
+- `--project`: creates the fork in `.claude/handoffs/` inside the current git repo
 
 **Steps:**
 1. Copy the pack file to `YYYY-MM-DD-<new-name>.md` (or `YYYY-MM-DD-<original-topic>-fork.md` if no name given).
@@ -308,8 +351,59 @@ Create a variant of an existing pack for a parallel approach, preserving full li
    - `update_triggers` = []
    - Add `forked_from: "<original-pack-path>"` field
 3. Clear `work_state.plan_position` in the fork (start fresh on plan position).
-4. Do NOT overwrite `.active` — the fork is not automatically loaded.
-5. Confirm: "Fork created: [path]. Use `/context-handoff load <name>` to switch to it."
+4. **Open threads:** After copying, before confirming, ask:
+   > "Keep N open threads from original? (y/n)"
+   - **Yes:** threads are kept as-is in the fork
+   - **No:** `open_threads` is cleared in the fork (`closed_threads` is untouched)
+5. Do NOT overwrite `.active` — the fork is not automatically loaded.
+6. Confirm: "Fork created: [path]. Use `/context-handoff load <name>` to switch to it."
+
+---
+
+## `/context-handoff export <pack> [--format markdown|json] [--output <file>]`
+
+Export a pack to a clean shareable format without YAML frontmatter.
+
+**Formats:**
+- `--format markdown` (default): produces a clean markdown document — topic, date, decisions, ruled out, open threads, next actions. No YAML. Suitable for pasting into Notion, Confluence, or sending to a non-Claude-Code user.
+- `--format json`: produces a JSON object with all YAML fields plus the human-layer sections parsed out.
+
+**Output:**
+- Default: write to stdout (so it can be piped or copied to clipboard)
+- `--output <file>`: write to the specified file path instead
+
+Accept partial name match for `<pack>` if unambiguous.
+
+---
+
+## `/context-handoff amend-decision <partial-what>`
+
+Edit an existing decision in the active pack.
+
+**Steps:**
+1. Find the decision by partial match on the `what` field. Error if ambiguous (multiple matches) or not found.
+2. Show the current entry (what, why, when, superseded_by if set).
+3. Offer to edit: `why`, `superseded_by`, or both.
+4. Apply the change and write the pack.
+5. Confirm: `✓ Decision amended: "[what]"`
+
+Does not allow editing `what` (the decision identity) — only its metadata.
+
+---
+
+## `/context-handoff note <text>`
+
+Add a quick unstructured observation to the active pack. Lower overhead than a thread (no priority, no action required).
+
+**Steps:**
+1. Read `.active` to get the current pack path. If no active session: error "No active session. Load a pack first."
+2. Append to the `notes` list in the YAML frontmatter:
+   ```yaml
+   notes:
+     - text: "the observation"
+       when: "ISO timestamp"
+   ```
+3. Write the pack silently — no confirmation needed (lightweight operation).
 
 ---
 
@@ -341,6 +435,8 @@ When you have just made a significant decision, ruled something out, or complete
 
 A "significant decision" is: choosing an approach over alternatives, ruling out an option with reasoning, completing a discrete unit of work, or establishing a new behavioral contract with the user.
 
+Additionally, if a new communication preference or anti-pattern has been observed (pushback recorded, explicit preference stated), update the relevant `communication_style` field at the same time.
+
 Confirm silently: `↻ Pack updated (decision)`
 
 ### Trigger 3: Turn cadence
@@ -349,6 +445,8 @@ Count your own responses (assistant turns) since `last_updated`. After every 5 a
 
 **Important:** Turn cadence uses both turn counting AND time elapsed — whichever fires first. On every auto-update trigger (commit or decision), also check if `last_updated` in the pack is more than 30 minutes old. If so, treat it as a cadence update too (reset the implicit turn counter). This mitigates unreliable turn counting after context compaction.
 
+If a new communication preference or anti-pattern has been observed since the last update, update the relevant `communication_style` field during the cadence update as well.
+
 Confirm silently: `↻ Pack updated (turn 5)`
 
 ### Update behavior
@@ -356,6 +454,12 @@ Confirm silently: `↻ Pack updated (turn 5)`
 Updates are **incremental** where possible — append to decisions/ruled_out/open_threads rather than rewriting. Only rewrite `work_state` and `resume_point` in full.
 
 **Write coordination:** Before writing a pack, check if `last_updated` in the file is newer than what Claude last read. If so, read the current file first and merge (append new decisions, take latest work_state) rather than overwriting.
+
+**update_triggers cap:** When appending to `update_triggers`, if the list already has 20 entries, replace it with a summary format before appending the new trigger:
+```yaml
+update_triggers: ["...20 prior triggers", "decision", "commit"]
+```
+Keep only the last 2 actual entries plus the summary prefix.
 
 ---
 
@@ -408,6 +512,7 @@ behavioral_contracts:
   - "[CLAUDE.md] example: contract seeded from project CLAUDE.md"
 
 # How this person communicates — populated from observed session behavior on pack
+# Updated during auto-updates when new preferences or anti-patterns are observed
 communication_style:
   tone: "direct and terse"
   verbosity: low   # low | medium | high
@@ -457,6 +562,11 @@ closed_threads:
   - text: "description of the resolved item"
     closed_at: "ISO timestamp"
 
+# Quick unstructured observations (added via /context-handoff note)
+notes:
+  - text: "the observation"
+    when: "ISO timestamp"
+
 # Key snippets, outputs, or error messages referenced in this session
 # Truncate each entry to ~500 chars. If larger, store first 300 chars + "... [truncated, see <file_path>]"
 # Keep total pack size under ~50KB
@@ -481,6 +591,7 @@ environment_state:
   notes: "migration pending — don't run db:reset"
 
 # Reference to a prior session pack for full lineage (optional)
+# Auto-populated on pack creation when a valid .active session exists
 prior_session: "~/.claude/handoffs/YYYY-MM-DD-prior-topic.md"
 
 # Set when this pack was forked from another (optional)
@@ -571,12 +682,14 @@ On `/context-handoff pack`, behavioral contracts sourced from `CLAUDE.md` are pr
 
 On `load`, `[CLAUDE.md]`-prefixed contracts are restored but flagged as "from project config — may differ if you're in a different project." The user can remove them via `/context-handoff contracts` or the load confirmation step.
 
+On `load`, if the current `CLAUDE.md` differs from what was seeded (or is absent), the diff is surfaced and the user is asked whether to update the pack's contracts accordingly.
+
 ---
 
 ## --project Scope
 
-Both `pack` and `load` accept `--project`:
-- Saves/loads from `.claude/handoffs/` inside the current git repo instead of `~/.claude/handoffs/`
+`pack`, `load`, `archive`, `fork`, `search`, and `threads` all accept `--project`:
+- Saves/loads/operates from `.claude/handoffs/` inside the current git repo instead of `~/.claude/handoffs/`
 - `list` always shows both locations, labelled `[global]` and `[project]`
 - If `--project` is used outside a git repo: error "Not in a git repo — cannot use --project scope"
 
@@ -584,7 +697,7 @@ Both `pack` and `load` accept `--project`:
 
 ## Linked Sessions (Chaining)
 
-Packs can reference prior packs for full lineage via `prior_session`. On load, Claude may offer to also load the prior session for deeper context, but does not do so automatically.
+Packs can reference prior packs for full lineage via `prior_session`. This field is auto-populated on pack creation when a valid `.active` session exists. On load, Claude may offer to also load the prior session for deeper context, but does not do so automatically.
 
 Forked packs reference their origin via `forked_from` (set automatically by `/context-handoff fork`).
 
@@ -596,11 +709,11 @@ Forked packs reference their origin via `forked_from` (set automatically by `/co
 
 **Corrupted / malformed pack:** If YAML frontmatter fails to parse, fall back to reading the markdown body only and warn: `⚠ Pack YAML could not be parsed — loading human-readable layer only. Behavioral contracts and work state will not be restored.`
 
-**Ambiguous partial match:** For commands that accept partial pack names (delete, close, rename, open, fork), error if multiple packs match and list the candidates.
+**Ambiguous partial match:** For commands that accept partial pack names (delete, close, rename, open, fork, export, amend-decision), error if multiple packs match and list the candidates.
 
 **Superseded decisions on load:** Surface decisions with a `superseded_by` field as struck-through context so the receiver understands the evolution. Don't hide them — the history matters.
 
-**Stale `.active` on startup:** When `pack` or `load` is invoked and `.active` exists with a `last_updated` more than 4 hours old, surface the previous session and ask the user how to proceed (load / discard / ignore) before continuing.
+**Stale `.active` on startup:** When `pack` or `load` is invoked without a specific pack name and `.active` exists with a `last_updated` more than 4 hours old, surface the previous session and ask the user how to proceed (load / discard / ignore) before continuing.
 
 ---
 
