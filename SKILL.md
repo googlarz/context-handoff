@@ -1,6 +1,6 @@
 ---
 name: context-handoff
-version: "1.3.2"
+version: "1.4.0"
 description: Session continuity for Claude — pack your current session state and load it into any new conversation with full context, decisions, behavioral contracts, and work state restored. Auto-updates on commits, decisions, and every 5 turns.
 tags: [session-continuity, context, handoff, productivity]
 author: googlarz
@@ -22,22 +22,26 @@ All commands that prompt for confirmation accept `--yes` / `-y` to skip. See the
 | `/context-handoff load [--quiet] [--project] [--state-only] [--contracts-only]` | Load a context pack at the start of a new session |
 | `/context-handoff update` | Force-write an update to the current session's pack |
 | `/context-handoff status` | Quick health check for the current session |
-| `/context-handoff list [query] [--all] [--limit <n>]` | List packs (global + project), optionally filtered; defaults to 20 most recent |
+| `/context-handoff list [query] [--all] [--limit <n>] [--tag <tag>]` | List packs, optionally filtered; defaults to 20 most recent |
 | `/context-handoff open <pack> [--full]` | View a pack's summary and first 40 lines without loading it |
 | `/context-handoff search [--project] <query>` | Search pack content across all packs (or project-only with --project) |
 | `/context-handoff threads [--project]` | All open threads across packs, sorted by priority |
 | `/context-handoff add-thread <text> [--priority high\|medium\|low]` | Add an open thread to the active pack |
 | `/context-handoff close <thread>` | Mark an open thread as resolved |
+| `/context-handoff notes` | List all notes in the active pack |
 | `/context-handoff note <text>` | Add a quick observation to the active pack |
 | `/context-handoff contracts` | View and edit active behavioral contracts |
 | `/context-handoff amend-decision <partial-what>` | Edit an existing decision's reasoning in the active pack |
 | `/context-handoff diff [--vs-current] [pack1] [pack2]` | Compare two packs, or a pack against current git state |
 | `/context-handoff merge [--dry-run] <pack1> <pack2> [output-name]` | Merge two packs into a combined pack |
 | `/context-handoff rename <pack> <new-name>` | Rename a pack and update its topic field |
+| `/context-handoff tag <pack> <tag> [--remove]` | Add or remove a tag on a pack |
 | `/context-handoff archive [--project] [--older-than <days>]` | Move old packs to archive/ subdirectory |
 | `/context-handoff fork [--project] <pack> [<new-name>]` | Create a variant of an existing pack for a parallel approach |
 | `/context-handoff export <pack> [--format markdown\|json] [--output <file>]` | Export a pack to a clean shareable format |
 | `/context-handoff setup` | Interactive first-time setup wizard |
+| `/context-handoff doctor` | Check hook installation, dirs, active session, and skill version |
+| `/context-handoff version` | Show the installed skill version |
 | `/context-handoff help` | Show a compact in-session command reference |
 
 ---
@@ -161,7 +165,7 @@ If no `.active` file: "No active session. Use `/context-handoff pack` or `/conte
 
 ---
 
-## `/context-handoff list [query] [--all] [--limit <n>]`
+## `/context-handoff list [query] [--all] [--limit <n>] [--tag <tag>]`
 
 List packs in `~/.claude/handoffs/` and the project-local `.claude/handoffs/` (if it exists), sorted by most recent. Label each entry `[global]` or `[project]`.
 
@@ -170,6 +174,8 @@ List packs in `~/.claude/handoffs/` and the project-local `.claude/handoffs/` (i
 **Defaults:** show the 20 most recent packs. Use `--all` to show all packs. Use `--limit <n>` for a custom count.
 
 **Optional query:** `/context-handoff list vibe-safe` filters by topic/content match.
+
+**`--tag <tag>`:** filters the output to only packs that include the given tag in their `tags` list. Can be combined with a query string and `--project`.
 
 If no packs exist: "No packs found."
 
@@ -194,11 +200,13 @@ Accept partial name match if unambiguous.
 
 ## `/context-handoff search [--project] <query>`
 
-Search pack content across all packs (topic, decisions, ruled_out, open_threads). Show matching packs with structured results.
+Search pack content across all packs (topic, decisions, ruled_out, open_threads, notes, artifacts). Show matching packs with structured results.
 
 **Scope:**
 - Default (no flag): searches both `~/.claude/handoffs/` and `.claude/handoffs/` (if it exists)
 - `--project`: searches only `.claude/handoffs/` inside the current git repo
+
+Searched fields: topic, decisions, ruled_out, open_threads, notes, artifacts.
 
 **Output format:**
 
@@ -265,9 +273,13 @@ Show currently active behavioral contracts from the loaded pack.
 
 **Steps:**
 1. Display the current `behavioral_contracts` list (numbered). Note any `[CLAUDE.md]`-prefixed contracts as sourced from project config.
-2. Offer: "Add, remove, or edit? (or press enter to skip)"
-3. If user responds, apply the change and write the pack
-4. Confirm any changes silently
+2. Offer:
+   > "Add, remove, or edit? (or press enter to skip)"
+   - **Add:** Prompt for new contract text, append to list.
+   - **Remove:** Prompt for the number of the contract to remove, delete it from the list.
+   - **Edit:** Prompt for the number of the contract to edit, show current text, prompt for replacement text, update in place.
+   - **(enter):** No changes.
+3. If any change was made, write the pack and confirm: `✓ Contracts updated`
 
 ---
 
@@ -344,6 +356,21 @@ Confirm the output path after writing.
 Rename a pack file and update its `topic` field in frontmatter to match.
 
 Accept partial name match if unambiguous. Confirm the old and new filename before renaming.
+
+---
+
+## `/context-handoff tag <pack> <tag> [--remove]`
+
+Add or remove a tag on a pack file.
+
+**Steps:**
+1. Find the pack by partial name match. Error if ambiguous.
+2. Read the `tags` list from frontmatter.
+3. Without `--remove`: if the tag already exists, confirm "Tag '[tag]' already on this pack." and exit. Otherwise append the tag and write the pack.
+4. With `--remove`: if the tag is not present, confirm "Tag '[tag]' not found on this pack." and exit. Otherwise remove it and write the pack.
+5. Confirm: `✓ Tag '[tag]' added/removed: [pack-name]`
+
+**`list` tag filtering:** `/context-handoff list --tag <tag>` filters the output to only packs that include the given tag. The `--tag` flag can be combined with a query string and `--project`.
 
 ---
 
@@ -445,6 +472,27 @@ Add a quick unstructured observation to the active pack. Lower overhead than a t
 
 ---
 
+## `/context-handoff notes`
+
+List all notes in the active pack, newest first.
+
+**Steps:**
+1. Read `.active` to get the current pack path. If no active session: error "No active session. Load a pack first."
+2. Read the `notes` list from YAML frontmatter.
+3. If empty: "No notes in this session."
+4. Otherwise display:
+
+```
+Notes — 3 entries
+  [2026-05-17T14:30Z] tried the alternative approach — too slow
+  [2026-05-17T13:15Z] rate limiter returns 429 with Retry-After header
+  [2026-05-17T12:00Z] auth middleware expects Bearer prefix
+```
+
+Newest first. No truncation — show full note text.
+
+---
+
 ## `/context-handoff setup`
 
 Interactive first-time setup wizard. Covers everything in sequence.
@@ -453,7 +501,7 @@ Interactive first-time setup wizard. Covers everything in sequence.
 1. **Already configured check:** Look for the commit hook in `~/.claude/settings.json` (search for "CONTEXT-HANDOFF") and check if `~/.claude/handoffs/` exists. If both are present: "Already configured. Run `/context-handoff doctor` to verify." and exit.
 2. **Hook installation:** Check if the commit hook is installed. If not, ask:
    > "Install the PostToolUse hook for auto-updates on git commit? (y/n)"
-   If yes, insert the hook JSON into `~/.claude/settings.json` (same JSON as shown in the Hook Setup section below).
+   If yes, run `bash ~/.claude/skills/context-handoff/scripts/install-hook.sh` to install the hook. If the script is not found, show the manual JSON from the Hook Setup section below.
 3. **Directory creation:** Create `~/.claude/handoffs/` if it doesn't exist.
 4. **Scope preference:** Ask:
    > "Where should packs be saved by default? [1] global: ~/.claude/handoffs/ or [2] project: .claude/handoffs/ in each repo?"
@@ -461,6 +509,52 @@ Interactive first-time setup wizard. Covers everything in sequence.
 5. **First pack offer:** Ask: "Want to pack this session now? (y/n)". If yes, run `/context-handoff pack`.
 6. **Summary:** Show what was done and how to get help:
    > "Setup complete. Type `/context-handoff help` at any time to see all commands."
+
+---
+
+## `/context-handoff doctor`
+
+Verify that context-handoff is correctly installed and the current session is healthy.
+
+**Checks:**
+1. **Hook installed:** Search `~/.claude/settings.json` for "CONTEXT-HANDOFF". Report ✓ or ✗.
+2. **Global handoffs dir:** Check `~/.claude/handoffs/` exists. Report ✓ or ✗ (with mkdir hint).
+3. **Project handoffs dir:** If in a git repo, check `.claude/handoffs/` exists. Report ✓ or ✗ (or "not in a git repo").
+4. **Active session:** Read `~/.claude/handoffs/.active`. If present, show topic + last_updated. If absent, report "No active session".
+5. **Skill version:** Report the version from the SKILL.md frontmatter (search `~/.claude/skills/context-handoff/SKILL.md` for `^version:`). If not found, report "version unknown".
+6. **Recent packs:** List the 5 most recent `.md` files in `~/.claude/handoffs/` (excluding `.active`) with their dates.
+
+**Output format:**
+```
+context-handoff doctor
+══════════════════════
+✓ Hook installed
+✓ ~/.claude/handoffs/ exists (12 packs)
+✓ .claude/handoffs/ exists (3 packs)
+✓ Active session: vibe-safe-release (updated 47m ago)
+✓ Skill version: 1.4.0
+
+Recent packs:
+  2026-05-17 · context-handoff-build
+  2026-05-16 · vibe-safe-release
+  2026-05-15 · llmessenger-auth
+```
+
+If any check fails, show a one-line fix hint below the ✗ line.
+
+---
+
+## `/context-handoff version`
+
+Show the installed skill version.
+
+Search `~/.claude/skills/context-handoff/SKILL.md` for the `^version:` field in frontmatter and print it:
+
+```
+context-handoff v1.4.0
+```
+
+If the file is not found: "Skill file not found at ~/.claude/skills/context-handoff/SKILL.md"
 
 ---
 
@@ -484,6 +578,7 @@ Browsing
   open <name> [--full]      View a pack without loading it
   search [--project] <q>    Search pack content
   threads [--project]       All open threads, sorted by priority
+  notes                     List notes in the active session
 
 Editing
   add-thread <text> [--priority high|medium|low]
@@ -494,6 +589,7 @@ Editing
 
 Pack management
   rename <pack> <new>       Rename a pack
+  tag <pack> <tag> [--remove]  Add or remove a tag
   delete [--dry-run] <pack> Delete a pack
   archive [--older-than n]  Move old packs to archive/
   fork [--project] <pack>   Create a parallel variant
@@ -506,6 +602,7 @@ Sharing
 Setup
   setup                     Interactive first-time setup wizard
   doctor                    Verify hook, dirs, active session
+  version                   Show installed skill version
 
 Flags available on all commands:
   --yes / -y                Skip confirmation prompts
@@ -526,6 +623,7 @@ Claude recognises the following aliases as equivalent to their canonical command
 | `add-thread` | `open-thread`, `thread` |
 | `close` | `close-thread`, `resolve` |
 | `note` | `observe` |
+| `notes` | `list-notes` |
 
 Example: `/context-handoff resume` is identical to `/context-handoff load`.
 

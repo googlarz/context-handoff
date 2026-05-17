@@ -1,6 +1,6 @@
 # context-handoff
 
-![version](https://img.shields.io/badge/version-1.3.2-blue)
+![version](https://img.shields.io/badge/version-1.4.0-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![skill](https://img.shields.io/badge/Claude%20Code-skill-orange)
 
@@ -137,7 +137,9 @@ Load a specific session by name.
 |---------|-------------|
 | `/context-handoff help` | Show all commands grouped by category — in-session reference |
 | `/context-handoff setup` | Interactive first-time setup wizard |
-| `/context-handoff list` | List all packs. Accepts an optional search term: `list auth` |
+| `/context-handoff doctor` | Verify hook, directories, active session, and skill version |
+| `/context-handoff version` | Show the installed skill version |
+| `/context-handoff list [query] [--all] [--limit <n>] [--tag <tag>]` | List packs, optionally filtered; defaults to 20 most recent |
 | `/context-handoff search <query>` | Full-text search across all pack content |
 | `/context-handoff delete <name>` | Delete a pack by name. Accepts `--dry-run` |
 | `/context-handoff close <thread>` | Mark an open thread as resolved |
@@ -146,6 +148,7 @@ Load a specific session by name.
 | `/context-handoff diff <name>` | Show what changed between two updates of a pack. Accepts `--vs-current` to diff against live session |
 | `/context-handoff merge <a> <b>` | Merge two packs into one (combines decisions, threads, contracts). Accepts `--dry-run` |
 | `/context-handoff rename <old> <new>` | Rename a pack file |
+| `/context-handoff tag <pack> <tag> [--remove]` | Add or remove a tag on a pack |
 | `/context-handoff status` | Quick health check — active pack, last updated, open thread count |
 | `/context-handoff open <name>` | View a pack's content without loading it |
 | `/context-handoff add-thread <text>` | Add an open thread to the active pack. Accepts `--priority high\|medium\|low` |
@@ -154,6 +157,7 @@ Load a specific session by name.
 | `/context-handoff export <name>` | Export pack to clean markdown or JSON — no YAML, shareable with anyone |
 | `/context-handoff amend-decision <text>` | Edit an existing decision's reasoning or mark it superseded |
 | `/context-handoff note <text>` | Add a quick observation to the active pack (lighter-weight than a thread) |
+| `/context-handoff notes` | List all notes in the active session |
 
 Commands that accept `--project`: `pack`, `load`, `archive`, `fork`, `search`, `threads` — saves/reads from `.claude/handoffs/` inside the git repo instead of `~/.claude/handoffs/`.
 
@@ -292,6 +296,8 @@ They're complementary, not competing. Use both.
 ---
 
 ## What's next (v2.0)
+
+**v1.4.0 shipped:** `doctor` command (verifies full install health), `notes` list command, `version` command, tag management (`tag`, `--tag` filter on `list`), `search` now covers notes and artifacts, `contracts` edit flow fully specced, `setup` wizard references install script correctly.
 
 **v1.3.2 shipped:** `setup` wizard, `help` command, `--quiet` load, `--yes` flag, command aliases, formatted search output, global thread priority sort.
 
