@@ -1,6 +1,6 @@
 ---
 name: context-handoff
-version: "1.6.2"
+version: "1.6.3"
 description: Session continuity for Claude — pack your current session state and load it into any new conversation with full context, decisions, behavioral contracts, and work state restored. Auto-updates on commits, decisions, and every 5 turns.
 tags: [session-continuity, context, handoff, productivity]
 author: googlarz
@@ -33,6 +33,7 @@ All commands that prompt for confirmation accept `--yes` / `-y` to skip. See the
 | `/context-handoff notes` | List all notes in the active pack |
 | `/context-handoff note <text>` | Add a quick observation to the active pack |
 | `/context-handoff import <file>` | Extract context from a meeting note, doc, Slack export, or any text file and merge it into the active pack |
+| `/context-handoff sync [--source <name>] [--since <duration>]` | Pull recent context from connected MCP integrations (Granola, Slack, Linear, GitHub, etc.) — optional, degrades gracefully if no MCPs connected |
 | `/context-handoff contracts` | View and edit active behavioral contracts |
 | `/context-handoff amend-decision <partial-what>` | Edit an existing decision's reasoning in the active pack |
 | `/context-handoff diff [--vs-current] [pack1] [pack2]` | Compare two packs, or a pack against current git state |
@@ -620,6 +621,81 @@ Accept `--dry-run` to show the preview without writing.
 
 ---
 
+## `/context-handoff sync [--source <name>] [--since <duration>]`
+
+Pull recent context from connected MCP integrations directly into the active pack. This is the real-time equivalent of `import` — instead of reading a file, it queries connected services live.
+
+**Completely optional.** The skill works identically without any MCPs connected. `sync` simply does nothing useful if no integrations are available — it will tell you what's missing and how to connect it.
+
+### Supported sources
+
+| Source | What it pulls | MCP required |
+|--------|--------------|-------------|
+| `granola` | Recent meeting notes and action items | Granola MCP |
+| `fathom` | Meeting transcripts and highlights | Fathom MCP |
+| `slack` | Recent messages in relevant channels/threads | Slack MCP |
+| `linear` | Recent issues, comments, status changes | Linear MCP |
+| `notion` | Recent page updates and comments | Notion MCP |
+| `github` | Recent PRs, issues, review comments | GitHub MCP |
+| `calendar` | Upcoming and recent calendar events | Calendar MCP |
+
+### Flags
+
+- `--source <name>`: Pull from one specific source only. Without this flag, all connected sources are checked.
+- `--since <duration>`: How far back to look. Default: `24h`. Examples: `--since 7d`, `--since 2h`, `--since 1w`.
+- `--dry-run`: Show preview without writing.
+- `--yes` / `-y`: Skip confirmation.
+
+### Steps
+
+1. Read `.active` to get the current pack path. If no active session: error "No active session. Load or create a pack first."
+2. Determine which sources to check: `--source` if given, otherwise all supported sources.
+3. For each source, check if its MCP tools are available in the current session:
+   - **Connected:** query for recent data using the MCP tools
+   - **Not connected:** skip and note it
+4. Extract from each source's response (same logic as `import`):
+   - Decisions / conclusions → `decisions`
+   - Action items / open questions → `open_threads`
+   - Key facts → `notes`
+5. Aggregate all results and show a preview:
+   ```
+   sync — 3 sources checked
+   ─────────────────────────
+   ✓ granola (2 meetings)
+     decisions (1): + chose Postgres over MySQL for new service
+     open_threads (2): + confirm deployment window with ops team [medium]
+                       + follow up with design on mobile nav [low]
+
+   ✓ slack (last 24h, 4 relevant threads)
+     notes (2): + Stan is on PTO until June 2
+                + rate limiter PR approved, ready to merge
+
+   ✗ linear: not connected
+     → claude mcp add linear https://mcp.linear.app/sse
+
+   Import all? (y/n)
+   ```
+6. On confirm: merge into active pack. Add one artifact entry per source:
+   ```yaml
+   artifacts:
+     - label: "sync: granola (2026-05-18)"
+       content: "1 decision, 2 threads from 2 meetings"
+   ```
+7. Confirm: `✓ Synced — [N] decisions, [M] threads, [K] notes added from [sources]`
+
+### Graceful degradation
+
+If **no** MCPs are connected:
+> "No integrations connected. sync works with: granola, fathom, slack, linear, notion, github, calendar.
+> Connect one with: claude mcp add <name> <url>"
+
+If **some** are connected but return no recent data:
+> "✓ synced — nothing new in the last 24h"
+
+The skill's core functionality (pack, load, update, import, profile, all other commands) is completely unaffected by whether any MCP is connected.
+
+---
+
 ## `/context-handoff profile [edit]`
 
 Your personal profile is a special persistent pack stored at `~/.claude/handoffs/profile.md`. Unlike regular packs, it is **automatically included in every session** — you never need to load it explicitly. It holds context about you that is stable across projects: personal facts, recurring commitments, preferences, working style, and anything else that would otherwise need to be re-established in every new conversation.
@@ -772,6 +848,8 @@ Editing
   close <thread>            Resolve an open thread
   note <text>               Add a quick observation
   import <file>             Extract context from a file into the active pack
+  sync [--source name] [--since 24h]
+                            Pull from connected MCPs (Granola, Slack, Linear…)
   contracts                 View/edit behavioral contracts
   amend-decision <text>     Edit a decision's reasoning
 

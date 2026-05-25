@@ -1,6 +1,6 @@
 # context-handoff
 
-![version](https://img.shields.io/badge/version-1.6.2-blue)
+![version](https://img.shields.io/badge/version-1.6.3-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![skill](https://img.shields.io/badge/Claude%20Code-skill-orange)
 
@@ -161,6 +161,7 @@ Load a specific session by name.
 | `/context-handoff amend-decision <text>` | Edit an existing decision's reasoning or mark it superseded |
 | `/context-handoff note <text>` | Add a quick observation to the active pack (lighter-weight than a thread) |
 | `/context-handoff import <file>` | Extract context from a meeting note, doc, or text file into the active pack |
+| `/context-handoff sync [--source <name>] [--since <duration>]` | Pull context from connected MCPs (Granola, Slack, Linear, GitHub…) — optional |
 | `/context-handoff notes` | List all notes in the active session |
 | `/context-handoff verify` | Diff Claude's stated session understanding against the written pack |
 
@@ -298,9 +299,23 @@ Users often ask: "how is this different from Claude's memory files?"
 
 They're complementary, not competing. Use both.
 
+### Optional MCP integrations
+
+`sync` pulls from connected MCP services — Granola, Fathom, Slack, Linear, Notion, GitHub, Calendar. Connect any, use none, the skill works either way.
+
+```bash
+# Pull from all connected sources (last 24h)
+/context-handoff sync
+
+# Pull from one source, last 7 days
+/context-handoff sync --source granola --since 7d
+```
+
 ---
 
 ## What's next (v2.0)
+
+**v1.6.3 shipped:** Optional MCP sync — `sync` command pulls from Granola, Fathom, Slack, Linear, Notion, GitHub, Calendar if connected. Graceful degradation: shows what's missing and how to connect it. Core skill unchanged — zero dependencies.
 
 **v1.6.2 shipped:** Personal profile (`~/.claude/handoffs/profile.md`) — persistent cross-session context for personal facts, professional context, preferences, and hard "never do this" rules. Loaded silently in every session automatically. Edit with `/context-handoff profile edit`.
 
