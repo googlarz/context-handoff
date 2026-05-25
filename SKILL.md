@@ -1,6 +1,6 @@
 ---
 name: context-handoff
-version: "1.7.0"
+version: "1.7.1"
 description: Session continuity for Claude — pack your current session state and load it into any new conversation with full context, decisions, behavioral contracts, and work state restored. Auto-updates on commits, decisions, and every 5 turns.
 tags: [session-continuity, context, handoff, productivity]
 author: googlarz
@@ -41,6 +41,7 @@ All commands that prompt for confirmation accept `--yes` / `-y` to skip. See the
 | `/context-handoff rename <pack> <new-name>` | Rename a pack and update its topic field |
 | `/context-handoff tag <pack> <tag> [--remove]` | Add or remove a tag on a pack |
 | `/context-handoff archive [--project] [--older-than <days>]` | Move old packs to archive/ subdirectory |
+| `/context-handoff delete [--dry-run] <pack>` | Delete a saved session by name |
 | `/context-handoff fork [--project] <pack> [<new-name>]` | Create a variant of an existing pack for a parallel approach |
 | `/context-handoff export <pack> [--format markdown\|json] [--output <file>]` | Export a pack to a clean shareable format |
 | `/context-handoff profile [edit]` | View or edit your persistent personal profile — context that loads automatically in every session |
@@ -105,13 +106,17 @@ Synthesize the current conversation into a context pack file.
    - **New:** proceed with creating a new dated file
 5. **prior_session auto-population:** If `.active` exists and is valid (not stale), set `prior_session` in the new pack's frontmatter to the path of the currently active pack before writing.
 6. Generate the pack file at `<dir>/YYYY-MM-DD-<topic-slug>.md`
-6a. **Integrity hash:** Compute the SHA-256 of the written file content and store it in `content_hash` in the frontmatter. Re-write the file with the hash included.
+6a. **Integrity hash:** Compute the SHA-256 of the file content **with the `content_hash` field set to an empty string** (i.e., hash the file as if `content_hash: ""`). Store the resulting hex digest in `content_hash` and write the file once. On verification, the same normalization is applied before checking: temporarily replace `content_hash: "<value>"` with `content_hash: ""` in the string before hashing.
 7. **CLAUDE.md seeding:** Before synthesizing behavioral contracts from the session:
    a. Check if `CLAUDE.md` exists in the current directory or `~/.claude/CLAUDE.md`
    b. If found, read it and extract any behavioral instructions (style, process, constraints)
    c. Seed these into `behavioral_contracts` prefixed with `[CLAUDE.md]` so they're distinguishable from session-derived ones
 8. Populate both layers (see Pack Format below)
-9. Write the session marker: `<dir>/.active` → `session_id|/full/path/to/pack.md|last_updated_timestamp`
+9. Write the session marker: read `~/.claude/handoffs/.active` as JSON (empty object `{}` if absent or unreadable). Set the entry for the current working directory:
+   ```json
+   { "<cwd>": { "session_id": "<session_id>", "pack": "/full/path/to/pack.md", "last_updated": "<timestamp>" } }
+   ```
+   Write the updated JSON back to `~/.claude/handoffs/.active`.
 10. Confirm: tell the user the file path and that auto-updates are now active
 11. Check if the hook is installed (look for "CONTEXT-HANDOFF" in `~/.claude/settings.json`). If not found, emit once: `⚠ Commit hook not installed — run scripts/install-hook.sh for automatic commit-triggered updates.`
 
@@ -149,7 +154,7 @@ Load a context pack at the start of a new session.
    Pick the most recent if context makes it obvious.
 3. If the handoffs directory is empty or doesn't exist: "No packs found. Use `/context-handoff pack` to create one."
 4. Read the pack file. If YAML frontmatter fails to parse, fall back to reading the markdown body only and warn: `⚠ Pack YAML could not be parsed — loading human-readable layer only. Behavioral contracts and work state will not be restored.`
-4a. **Integrity check:** If `content_hash` is present in the frontmatter, verify it matches the SHA-256 of the file content. If mismatch: `⚠ Pack integrity check failed — file may have been modified outside context-handoff. Proceeding anyway.`
+4a. **Integrity check:** If `content_hash` is present and non-empty, verify it: normalize the file content by replacing the `content_hash` value with an empty string, compute SHA-256 of the normalized content, and compare. If mismatch: `⚠ Pack integrity check failed — file may have been modified outside context-handoff. Proceeding anyway.`
 5. **Staleness check:** If `last_updated` is more than 7 days ago, warn before restoring:
    > `⚠ This pack is X days old (last updated YYYY-MM-DD). Resume point and open threads may be stale.`
    Continue loading regardless.
@@ -169,7 +174,7 @@ Load a context pack at the start of a new session.
 12. List any open threads (with priority if set)
 13. If the current directory is a git repo, run `git log --oneline` since `last_updated` and surface it:
     > `4 commits since this pack was last updated: [list]`
-14. Write the session marker: `<dir>/.active` → `session_id|/full/path/to/pack.md|last_updated_timestamp`
+14. Write the session marker: read `~/.claude/handoffs/.active` as JSON (empty object if absent). Update the entry for the current working directory with `session_id`, `pack` path, and `last_updated` timestamp. Write back.
 14a. **Profile load:** After writing `.active`, silently read `~/.claude/handoffs/profile.md` if it exists. Merge its `personal`, `professional`, `preferences`, and `never` fields into the current session context. Do NOT list these out loud — they are background context, not contracts to recite. Just apply them silently. If any `never` entries exist, treat them as hard behavioral constraints for this session.
 15. Proceed — do not ask "ready to continue?", just continue
 
@@ -182,10 +187,10 @@ Load a context pack at the start of a new session.
 Force-write a full update to the current session's pack.
 
 **Steps:**
-1. Find the active pack by reading `~/.claude/handoffs/.active` (or ask user if not found)
+1. Find the active pack by reading `~/.claude/handoffs/.active` (look up entry by current working directory in the JSON map; or ask user if not found)
 2. Before writing, check if `last_updated` in the file is newer than what Claude last read. If so, read the current file first and merge (append new decisions, take latest work_state) rather than overwriting.
 3. Rewrite the full pack with current state
-3a. **Integrity hash:** Recompute SHA-256 of the updated file content and update `content_hash`.
+3a. **Integrity hash:** Recompute SHA-256 of the updated file content with the `content_hash` field set to an empty string (same normalization as pack step 6a), and update `content_hash` with the resulting hex digest.
 4. Increment `update_count`, append trigger `manual` to `update_triggers`
 5. Confirm silently: `↻ Pack updated (manual) — [path]`
 
@@ -196,7 +201,7 @@ Force-write a full update to the current session's pack.
 Diff Claude's in-memory understanding of the current session against what is actually written in the active pack file.
 
 **Steps:**
-1. Read `~/.claude/handoffs/.active`. If no active session: error "No active session. Load or create a pack first."
+1. Read `~/.claude/handoffs/.active` (look up entry by current working directory in the JSON map). If no active session: error "No active session. Load or create a pack first."
 2. Read the pack file from disk.
 3. **Systematic scan:** Before comparing, extract decision candidates from recent assistant messages by scanning for these patterns:
    - Phrases: 'decided', 'going with', 'chose', 'ruling out', 'won't', 'instead of', 'over X because', 'rejected', 'the approach is'
@@ -229,13 +234,16 @@ Diff Claude's in-memory understanding of the current session against what is act
      in session, not in pack: ["scripts/upgrade.sh"]
    ```
 5. If drift is found, offer: "Update the pack now? (y/n)" — if yes, run `/context-handoff update`.
-6. If no drift: "✓ Pack matches session state."
+6. If the active pack was created by auto-pack (identifiable by `update_count: 0` and `update_triggers: []` or `["initial"]`), prefix the drift report with:
+   > `ℹ This is an auto-created pack (never manually saved). All drift is expected — the pack was not yet populated.`
+   Still offer to update.
+7. If no drift: "✓ Pack matches session state."
 
 ---
 
 ## `/context-handoff status`
 
-Quick health check for the current session. Reads `~/.claude/handoffs/.active` and shows:
+Quick health check for the current session. Reads `~/.claude/handoffs/.active` (look up entry by current working directory in the JSON map) and shows:
 
 ```
 Active pack: 2026-05-16-vibe-safe-release
@@ -254,7 +262,7 @@ List packs in `~/.claude/handoffs/` and the project-local `.claude/handoffs/` (i
 
 **Output columns:** filename · topic · last_updated · update_count · open thread count · scope
 
-**Defaults:** show the 20 most recent packs. Use `--all` to show all packs. Use `--limit <n>` for a custom count.
+**Defaults:** show the 20 most recent packs. Use `--all` to show all packs. Use `--limit <n>` for a custom count. Exclude `profile.md`, `.active`, and `current.json` from results.
 
 **Optional query:** `/context-handoff list vibe-safe` filters by topic/content match.
 
@@ -289,7 +297,7 @@ Search pack content across all packs (topic, decisions, ruled_out, open_threads,
 - Default (no flag): searches both `~/.claude/handoffs/` and `.claude/handoffs/` (if it exists)
 - `--project`: searches only `.claude/handoffs/` inside the current git repo
 
-Searched fields: topic, decisions, ruled_out, open_threads, notes, artifacts.
+Searched fields: topic, decisions, ruled_out, open_threads, notes, artifacts. Exclude `profile.md` from search results. Profile content contains personal data and should not appear in topic/decision searches.
 
 **Output format:**
 
@@ -327,7 +335,7 @@ On confirm (without `--dry-run`), delete the file and confirm deletion.
 Mark an open thread as resolved.
 
 **Steps:**
-1. Find the open thread by partial text match. Error if ambiguous (multiple matches).
+1. Read `~/.claude/handoffs/.active` (look up entry by current working directory in the JSON map) to get the current pack path. If no active session: error "No active session. Load a pack first." Find the open thread by partial text match. Error if ambiguous (multiple matches).
 2. Remove it from `open_threads`
 3. Add it to `closed_threads` with a `closed_at` timestamp (current time)
 4. Write the pack
@@ -340,7 +348,7 @@ Mark an open thread as resolved.
 Add an open thread to the active pack.
 
 **Steps:**
-1. Read `~/.claude/handoffs/.active` to get the current pack path. If no active session: error "No active session. Load a pack first."
+1. Read `~/.claude/handoffs/.active` (look up entry by current working directory in the JSON map) to get the current pack path. If no active session: error "No active session. Load a pack first."
 2. **Duplicate detection:** Before appending, check if any existing open thread has text that is >80% similar. Simple heuristic: if the new text shares 3 or more consecutive words with an existing open thread, warn:
    > "Similar thread already exists: '[existing text]'. Add anyway? (y/n)"
    If the user answers `n`, abort. If `y`, proceed.
@@ -554,7 +562,7 @@ Does not allow editing `what` (the decision identity) — only its metadata.
 Add a quick unstructured observation to the active pack. Lower overhead than a thread (no priority, no action required).
 
 **Steps:**
-1. Read `.active` to get the current pack path. If no active session: error "No active session. Load a pack first."
+1. Read `.active` (look up entry by current working directory in the JSON map) to get the current pack path. If no active session: error "No active session. Load a pack first."
 2. Append to the `notes` list in the YAML frontmatter:
    ```yaml
    notes:
@@ -570,7 +578,7 @@ Add a quick unstructured observation to the active pack. Lower overhead than a t
 List all notes in the active pack, newest first.
 
 **Steps:**
-1. Read `.active` to get the current pack path. If no active session: error "No active session. Load a pack first."
+1. Read `.active` (look up entry by current working directory in the JSON map) to get the current pack path. If no active session: error "No active session. Load a pack first."
 2. Read the `notes` list from YAML frontmatter.
 3. If empty: "No notes in this session."
 4. Otherwise display:
@@ -600,7 +608,7 @@ If a URL is given, fetch its content first, then proceed with the same extractio
 1. Read `.active` to get the current pack path. If no active session: error "No active session. Load or create a pack first."
 2. If `<file>` starts with `http://` or `https://`, fetch the URL content. Otherwise read the local file.
 3. Extract from the file content:
-   - **Decisions / conclusions** → append to `decisions` (what + why inferred from context, `when` = file mtime or now)
+   - **Decisions / conclusions** → append to `decisions` (what + why inferred from context, `when` = file mtime or now). Before appending any extracted decision, check if an existing decision in `decisions` has a `what` field that is >70% similar (same 3+ consecutive words). If so, skip the duplicate silently.
    - **Action items / open questions** → append to `open_threads` with `priority: medium` by default
    - **Key facts or observations** → append to `notes`
    - **Files or resources referenced** → append to `context_files` if paths are mentioned
@@ -664,7 +672,7 @@ Pull recent context from connected MCP integrations directly into the active pac
    - **Connected:** query for recent data using the MCP tools
    - **Not connected:** skip and note it
 4. Extract from each source's response (same logic as `import`):
-   - Decisions / conclusions → `decisions`
+   - Decisions / conclusions → `decisions`. Before appending any extracted decision, check if an existing decision in `decisions` has a `what` field that is >70% similar (same 3+ consecutive words). If so, skip the duplicate silently.
    - Action items / open questions → `open_threads`
    - Key facts → `notes`
 5. Aggregate all results and show a preview:
@@ -776,7 +784,11 @@ Interactive first-time setup wizard. Covers everything in sequence.
 3. **Directory creation:** Create `~/.claude/handoffs/` if it doesn't exist.
 4. **Scope preference:** Ask:
    > "Where should packs be saved by default? [1] global: ~/.claude/handoffs/ or [2] project: .claude/handoffs/ in each repo?"
-   Record the answer as a note — Claude cannot persist settings, so this is informational guidance the user can apply when running `pack` and `load`.
+   Record the answer and write it to `~/.claude/handoffs/.config` as a JSON file:
+   ```json
+   { "default_scope": "global" }
+   ```
+   or `"project"` if the user chose project scope. On any subsequent `pack`, `load`, `archive`, `fork`, `search`, or `threads` call without an explicit `--project` or `--global` flag, read `.config` and apply the default. If `.config` is absent, default to global.
 5. **First pack offer:** Ask: "Want to pack this session now? (y/n)". If yes, run `/context-handoff pack`.
 6. **Summary:** Show what was done and how to get help:
    > "Setup complete. Type `/context-handoff` to resume or save a session, or `/context-handoff help` to see all commands."
@@ -794,7 +806,10 @@ Verify that context-handoff is correctly installed and the current session is he
 4. **Active session:** Read `~/.claude/handoffs/.active`. If present, show topic + last_updated. If absent, report "No active session".
 5. **Skill version:** Report the version from the SKILL.md frontmatter (search `~/.claude/skills/context-handoff/SKILL.md` for `^version:`). If not found, report "version unknown".
 6. **Recent packs:** List the 5 most recent `.md` files in `~/.claude/handoffs/` (excluding `.active`) with their dates.
-7. **Update available:** Compare the installed version (from step 5) against the latest GitHub release tag by fetching `https://api.github.com/repos/googlarz/context-handoff/releases/latest`. If a newer version exists, report: `↑ v[latest] available — run scripts/upgrade.sh to update`. If fetch fails or installed version matches latest: report `✓ Up to date`.
+7. **Update available:** Compare the installed version (from step 5) against the latest GitHub release tag by fetching `https://api.github.com/repos/googlarz/context-handoff/releases/latest`.
+   - If fetch succeeds and installed version matches latest: report `✓ Up to date`
+   - If fetch fails (network error, timeout): report `⚠ Version check unavailable (offline)`
+   - If fetch succeeds and a newer version exists: report `↑ v[latest] available — run scripts/upgrade.sh`
 
 **Output format:**
 ```
@@ -919,7 +934,10 @@ Once a session has an active pack (created via `pack` or loaded via `load`), mai
 
 ### Auto-pack on session start
 
-If no `.active` file exists after the first assistant turn in a session, silently create a minimal pack automatically — no prompt, no confirmation needed.
+After the first assistant turn, check whether a fresh active session exists for the current working directory:
+1. Read `~/.claude/handoffs/.active` as JSON. Look up the current cwd entry.
+2. If entry exists and `last_updated` is within the last 4 hours: do not auto-pack — a session is already active. This prevents re-firing after context compaction, which resets Claude's in-context memory but does not clear `.active`.
+3. If no entry, or entry is stale (> 4 hours): silently create a minimal pack and write the `.active` entry.
 
 **Minimal auto-pack contains:**
 - `topic`: inferred from the user's first message (3–5 word slug)
@@ -973,7 +991,7 @@ The PostToolUse hook fires on two event types:
 
 **Write trigger:** When hook output contains `CONTEXT-HANDOFF: file-write detected` — lightweight update: append new files to `files_touched`, update `last_updated`. Do NOT increment `update_count` or append to `update_triggers`. Silent, no confirmation.
 
-**Pre-compact trigger:** When hook output contains `CONTEXT-HANDOFF: pre-compact — save pack now` — full pack update immediately, with trigger `pre-compact` in `update_log`. This fires before every context compaction, ensuring the pack is current before the context window shrinks.
+**Pre-compact trigger:** When hook output contains `CONTEXT-HANDOFF: pre-compact — save pack now` — full pack update immediately, with trigger `pre-compact` in `update_log`. This fires via the `PreCompact` hook before every context compaction, ensuring the pack is current before the context window shrinks.
 
 Both triggers read `.active` to find the pack path — no reliance on conversation memory.
 
@@ -1004,7 +1022,7 @@ If a new communication preference or anti-pattern has been observed since the la
 
 Confirm silently: `↻ [topic] saved (turn [N])`
 
-**Catchup write:** If the last `update_log` entry is more than 5 assistant turns old and any trigger fires (commit, file-write, decision, or manual), perform a catchup write first — a full state update with trigger `catchup` — before the normal incremental update. This ensures that pure-conversation sessions (no tool calls for several turns) don't accumulate silent drift.
+**Catchup write:** If the last `update_log` entry (or `last_updated` if `update_log` is empty) is more than 15 minutes old and any trigger fires (commit, file-write, decision, or manual), perform a catchup write first — a full state update with trigger `catchup` — before the normal incremental update. This ensures that pure-conversation sessions (no tool calls for several turns) don't accumulate silent drift.
 
 ### Failure detection
 
@@ -1034,7 +1052,7 @@ Before writing a pack, read the current file and check two things:
 
 This prevents two parallel Claude sessions (e.g., two terminal tabs) from clobbering each other's work state.
 
-**`current.json` mirror:** On every pack write (pack, update, auto-update), also write `~/.claude/handoffs/current.json` containing all YAML frontmatter fields as a flat JSON object. This makes the active session readable by any tool, agent, or LLM that can read files — no YAML parsing required. Other agents can point to this file to get always-current context without needing the context-handoff skill installed.
+**`current.json` mirror:** On every pack write (pack, update, auto-update), also write `~/.claude/handoffs/current.json` containing all YAML frontmatter fields as a JSON object (nested structures like `work_state`, `decisions`, and `open_threads` are preserved as-is). This makes the active session readable by any tool, agent, or LLM that can read files — no YAML parsing required. Other agents can point to this file to get always-current context without needing the context-handoff skill installed.
 
 Example structure:
 ```json
@@ -1052,9 +1070,9 @@ Example structure:
 
 **update_triggers cap:** When appending to `update_triggers`, if the list already has 20 entries, replace it with a summary format before appending the new trigger:
 ```yaml
-update_triggers: ["...20 prior triggers", "decision", "commit"]
+update_triggers: ["[20 prior — truncated]", "decision", "commit"]
 ```
-Keep only the last 2 actual entries plus the summary prefix.
+Keep only the last 2 actual entries plus the summary sentinel. The summary sentinel `[20 prior — truncated]` is the exact string to use. It is distinguishable from valid trigger names by the bracket prefix and is never treated as a trigger value.
 
 ### Pack size budget
 
@@ -1068,6 +1086,15 @@ Keep packs under ~50KB. On every update, check the estimated pack size:
     - text: "N entries moved to archive (auto-pruned for size)"
       when: "ISO timestamp"
   ```
+
+**`update_log` cap:** When `update_log` exceeds 100 entries, replace the oldest 80 entries with a single summary sentinel:
+```yaml
+- at: "<timestamp of first pruned entry>"
+  trigger: "[80 prior entries — pruned for size]"
+  added: {}
+  changed: {}
+```
+Keep the most recent 20 entries intact. The sentinel uses the same bracket format as the `update_triggers` cap.
 
 The sidecar is human-readable only — it is never loaded by `load` or `update`. It is for history, not for restoration.
 
@@ -1097,7 +1124,12 @@ last_updated: "YYYY-MM-DDTHH:MM:SSZ"
 update_count: 0
 update_triggers: []
 
-# SHA-256 of pack file content (computed on write, verified on load)
+# SHA-256 (hex, lowercase) of pack content normalized as follows:
+# 1. Encode file as UTF-8
+# 2. Normalize line endings to LF (\n)
+# 3. Replace the content_hash value with empty string: content_hash: ""
+# 4. Hash the resulting bytes
+# SHA-256 of pack content normalized with content_hash set to empty string. Same normalization used for verification.
 content_hash: ""
 
 # Chronological log of all updates — append only, never rewrite
@@ -1105,7 +1137,7 @@ content_hash: ""
 update_log: []
 # Each entry shape:
 # - at: "ISO timestamp"
-#   trigger: "initial|decision|commit|file-write|turn-N|manual|pre-compact"
+#   trigger: "initial|decision|commit|file-write|turn-N|manual|pre-compact|catchup"
 #   added:
 #     decisions: ["short description of decision added"]
 #     open_threads: ["thread text"]
@@ -1151,6 +1183,10 @@ communication_style:
   anti_patterns:
     - "no end-of-turn summaries"
     - "no pleasantries"
+# IMPORTANT: communication_style must always be a YAML mapping (object), never a plain string.
+# If loading a pack where communication_style is a string, convert it:
+# treat the string as the value of the `tone` field and set verbosity: medium,
+# preferences: [], anti_patterns: [].
 
 # Things the user pushed back on or corrected
 pushbacks_recorded:
@@ -1299,9 +1335,9 @@ To enable automatic pack updates on git commits, add this to `~/.claude/settings
 ```json
 {
   "hooks": {
-    "PreToolUse": [
+    "PreCompact": [
       {
-        "matcher": "compact",
+        "matcher": "",
         "hooks": [
           {
             "type": "command",
@@ -1314,7 +1350,7 @@ To enable automatic pack updates on git commits, add this to `~/.claude/settings
 }
 ```
 
-The PreCompact hook fires before context is compacted. When Claude sees `CONTEXT-HANDOFF: pre-compact`, immediately do a full pack update with trigger `pre-compact` before proceeding. This prevents context loss at compaction boundaries.
+The `PreCompact` hook fires before context is compacted. Claude Code supports this hook type natively — it fires before every compaction event, not before a tool call. When Claude sees `CONTEXT-HANDOFF: pre-compact`, immediately do a full pack update with trigger `pre-compact` before proceeding. This prevents context loss at compaction boundaries.
 
 The `install-hook.sh` script installs all hooks automatically (Bash commit, Write/Edit file-write, and PreCompact). Run:
 
@@ -1358,9 +1394,11 @@ On `load`, if the current `CLAUDE.md` differs from what was seeded (or is absent
 
 ## Linked Sessions (Chaining)
 
-Packs can reference prior packs for full lineage via `prior_session`. This field is auto-populated on pack creation when a valid `.active` session exists. On load, Claude may offer to also load the prior session for deeper context, but does not do so automatically.
+Packs can reference prior packs for full lineage via `prior_session`. This field is auto-populated on pack creation when a valid `.active` session exists. On load, Claude may offer to also load the prior session for deeper context, but does not do so automatically. Only offer if the `prior_session` path exists on the current machine.
 
 Forked packs reference their origin via `forked_from` (set automatically by `/context-handoff fork`).
+
+**Cross-machine handoff:** When a pack is used as a team handoff (loaded by someone other than the original author), `prior_session` and `forked_from` paths may not exist on the teammate's machine. On load, if these paths do not resolve: skip the offer to load the prior session and emit: `⚠ prior_session path not found on this machine — lineage unavailable.` Do not error.
 
 ---
 
