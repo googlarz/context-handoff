@@ -70,15 +70,20 @@ The pack is a **living document**, not a one-time snapshot.
 
 ## Install
 
-```bash
-# Clone or copy the skill
-git clone https://github.com/googlarz/context-handoff ~/.claude/skills/context-handoff
+**The easiest way — just tell Claude:**
 
-# Install the commit hook (adds PostToolUse hook to ~/.claude/settings.json)
+> "Install this skill: https://github.com/googlarz/context-handoff"
+
+Claude clones the repo, updates your settings, and installs the commit hook. Done.
+
+**Manual install:**
+
+```bash
+git clone https://github.com/googlarz/context-handoff ~/.claude/skills/context-handoff
 bash ~/.claude/skills/context-handoff/scripts/install-hook.sh
 ```
 
-Then add the skill to your Claude Code project or global settings:
+Then add to your Claude Code settings:
 
 ```json
 {
