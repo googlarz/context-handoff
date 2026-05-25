@@ -1,6 +1,6 @@
 ---
 name: context-handoff
-version: "1.6.3"
+version: "1.6.4"
 description: Session continuity for Claude — pack your current session state and load it into any new conversation with full context, decisions, behavioral contracts, and work state restored. Auto-updates on commits, decisions, and every 5 turns.
 tags: [session-continuity, context, handoff, productivity]
 author: googlarz
@@ -75,7 +75,7 @@ When any `/context-handoff` command is invoked and `~/.claude/handoffs/` does no
 
 Show this exactly once before executing the command:
 
-> **context-handoff** — saves your session (decisions, work state, what was ruled out, how you like to work) and restores it in any new conversation. Run `/context-handoff help` to see all commands.
+> **context-handoff** remembers your sessions. Decisions made, things tried and rejected, where you left off, how you like to work — all of it restored when you come back. Type `/context-handoff help` to see all commands.
 
 Then execute the original command. Never show this message again once the directory exists.
 
@@ -826,50 +826,52 @@ Shows a compact in-session command reference. No file access needed — render t
 ```
 context-handoff commands
 ════════════════════════
+
 Tip: /context-handoff with no args → smart resume or save
 
 Session
-  pack [--project]          Create a context pack from this session
+  pack [--project]          Save this session  (alias: save)
   load [--quiet] [--project] [--state-only] [--contracts-only]
-                            Restore a pack into a new session
-  update                    Force-write a pack update
-  verify                    Diff session state vs. pack file
-  status                    Quick health check for active session
+                            Resume a saved session  (alias: resume)
+  update                    Force-save right now
+  status                    Is anything saved? What's active?
 
 Browsing
-  list [--all] [--limit n]  List packs (default: 20 most recent)
-  open <name> [--full]      View a pack without loading it
-  search [--project] <q>    Search pack content
-  threads [--project]       All open threads, sorted by priority
-  notes                     List notes in the active session
+  list [--all] [--limit n]  List saved sessions (default: 20 most recent)
+  open <name> [--full]      Preview a session without loading it
+  search [--project] <q>    Search across all saved sessions
+  threads [--project]       All open questions, sorted by priority
 
 Editing
   add-thread <text> [--priority high|medium|low]
-  close <thread>            Resolve an open thread
-  note <text>               Add a quick observation
-  import <file>             Extract context from a file into the active pack
-  sync [--source name] [--since 24h]
-                            Pull from connected MCPs (Granola, Slack, Linear…)
-  contracts                 View/edit behavioral contracts
-  amend-decision <text>     Edit a decision's reasoning
+                            Add an open question or to-do  (alias: thread)
+  close <thread>            Mark a question as resolved  (alias: resolve)
+  note <text>               Quick observation — no action needed  (alias: observe)
+  notes                     List all observations in this session
+  contracts                 How you like to work  (alias: rules)
+  amend-decision <text>     Correct the reasoning behind a decision
+  import <file>             Pull context from a meeting note, doc, or export
+  sync [--source name]      Pull from connected apps (Granola, Slack, Linear…)
 
 Pack management
-  rename <pack> <new>       Rename a pack
-  tag <pack> <tag> [--remove]  Add or remove a tag
-  delete [--dry-run] <pack> Delete a pack
-  archive [--older-than n]  Move old packs to archive/
-  fork [--project] <pack>   Create a parallel variant
-  merge [--dry-run] <a> <b> Combine two packs
-  diff [--vs-current] ...   Compare packs
+  rename <pack> <new>       Rename a saved session
+  delete [--dry-run] <pack> Delete a saved session
+  archive [--older-than n]  Move old sessions to archive/
+  fork [--project] <pack>   Create a parallel variant  
+  merge [--dry-run] <a> <b> Combine two sessions
+  diff [--vs-current] ...   What changed between two sessions
+  tag <pack> <tag>          Add or remove a label
+  verify                    Does the saved file match what I remember?
 
 Sharing
   export <pack> [--format markdown|json] [--output file]
+                            Share with teammates or other tools
 
-Setup
-  profile [edit]            View or edit your persistent personal profile
-  setup                     Interactive first-time setup wizard
-  doctor                    Verify hook, dirs, active session
-  version                   Show installed skill version
+Profile & Setup
+  profile [edit]            Persistent context about you — loaded every session
+  setup                     First-time setup wizard
+  doctor                    Is everything installed correctly?
+  version                   Which version is installed?
 
 Flags available on all commands:
   --yes / -y                Skip confirmation prompts
@@ -886,10 +888,10 @@ Claude recognises the following aliases as equivalent to their canonical command
 |-----------|-----------|
 | `pack` | `save`, `snapshot` |
 | `profile` | `me`, `about-me` |
-| `load` | `resume` |
-| `contracts` | `rules`, `prefs` |
-| `add-thread` | `open-thread`, `thread` |
-| `close` | `close-thread`, `resolve` |
+| `load` | `resume`, `continue` |
+| `contracts` | `rules`, `prefs`, `how-i-work` |
+| `add-thread` | `thread`, `open-thread`, `todo` |
+| `close` | `close-thread`, `resolve`, `done` |
 | `note` | `observe` |
 | `notes` | `list-notes` |
 
@@ -1293,7 +1295,7 @@ When no pack exists for the current session (no `.active` file), proactively off
 - **Milestone:** A feature ships, a bug is fixed, a significant decision is finalized, a task is fully completed
 
 **Offer exactly once per session:**
-> "Want me to save this session? I can pack the decisions, work state, and context so you can resume exactly here later. (y/n)"
+> "Want me to save this session so you can pick up exactly where you left off next time? (/context-handoff save)"
 
 If the user says no, do not offer again this session. If the user says yes, run `/context-handoff pack`.
 

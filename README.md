@@ -1,6 +1,6 @@
 # context-handoff
 
-![version](https://img.shields.io/badge/version-1.6.3-blue)
+![version](https://img.shields.io/badge/version-1.6.4-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![skill](https://img.shields.io/badge/Claude%20Code-skill-orange)
 
@@ -289,6 +289,60 @@ Add `.claude/handoffs/` to your repo and commit packs you want to share. `list` 
 
 ---
 
+## Using your context in other tools
+
+Every time context-handoff saves, it also writes `~/.claude/handoffs/current.json` — a flat JSON snapshot of the active session. Any tool that can read a file can consume it. No special integration, no API key.
+
+### Cursor / Windsurf / other AI editors
+
+Add one line to your rules file (`.cursorrules`, `.windsurfrules`, etc.):
+
+```
+At session start, read ~/.claude/handoffs/current.json for current work context, open decisions, and resume point.
+```
+
+### Claude.ai (web or mobile)
+
+Run `/context-handoff export` in Claude Code — it copies a clean markdown summary to your clipboard. Paste it into your first message on the web.
+
+### Any MCP-compatible agent
+
+Point directly at the file:
+
+```json
+{
+  "mcpServers": {
+    "context": {
+      "command": "cat",
+      "args": ["~/.claude/handoffs/current.json"]
+    }
+  }
+}
+```
+
+Or just tell the agent: *"Read ~/.claude/handoffs/current.json for my current session context."*
+
+### What's in current.json
+
+```json
+{
+  "topic": "vibe-safe-release",
+  "resume_point": "README needs updating — all code done",
+  "work_state": {
+    "goal": "ship v1.9.0",
+    "files_touched": ["vibe-safe.sh", "README.md"],
+    "plan_position": "step 3 of 4"
+  },
+  "decisions": [...],
+  "open_threads": [...],
+  "behavioral_contracts": [...]
+}
+```
+
+Updated automatically on every save — no manual export needed.
+
+---
+
 ## vs Claude's built-in memory
 
 Users often ask: "how is this different from Claude's memory files?"
@@ -319,6 +373,8 @@ They're complementary, not competing. Use both.
 ---
 
 ## What's next (v2.0)
+
+**v1.6.4 shipped:** Plain-language help — all commands now show what they actually do alongside their technical names. `current.json` cross-tool guide — Cursor, Windsurf, Claude.ai web, and any MCP agent can now consume the active session with zero extra setup.
 
 **v1.6.3 shipped:** Optional MCP sync — `sync` command pulls from Granola, Fathom, Slack, Linear, Notion, GitHub, Calendar if connected. Graceful degradation: shows what's missing and how to connect it. Core skill unchanged — zero dependencies.
 
