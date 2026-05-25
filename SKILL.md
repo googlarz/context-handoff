@@ -1,6 +1,6 @@
 ---
 name: context-handoff
-version: "1.6.1"
+version: "1.6.2"
 description: Session continuity for Claude — pack your current session state and load it into any new conversation with full context, decisions, behavioral contracts, and work state restored. Auto-updates on commits, decisions, and every 5 turns.
 tags: [session-continuity, context, handoff, productivity]
 author: googlarz
@@ -42,6 +42,7 @@ All commands that prompt for confirmation accept `--yes` / `-y` to skip. See the
 | `/context-handoff archive [--project] [--older-than <days>]` | Move old packs to archive/ subdirectory |
 | `/context-handoff fork [--project] <pack> [<new-name>]` | Create a variant of an existing pack for a parallel approach |
 | `/context-handoff export <pack> [--format markdown\|json] [--output <file>]` | Export a pack to a clean shareable format |
+| `/context-handoff profile [edit]` | View or edit your persistent personal profile — context that loads automatically in every session |
 | `/context-handoff setup` | Interactive first-time setup wizard |
 | `/context-handoff doctor` | Check hook installation, dirs, active session, and skill version |
 | `/context-handoff version` | Show the installed skill version |
@@ -168,6 +169,7 @@ Load a context pack at the start of a new session.
 13. If the current directory is a git repo, run `git log --oneline` since `last_updated` and surface it:
     > `4 commits since this pack was last updated: [list]`
 14. Write the session marker: `<dir>/.active` → `session_id|/full/path/to/pack.md|last_updated_timestamp`
+14a. **Profile load:** After writing `.active`, silently read `~/.claude/handoffs/profile.md` if it exists. Merge its `personal`, `professional`, `preferences`, and `never` fields into the current session context. Do NOT list these out loud — they are background context, not contracts to recite. Just apply them silently. If any `never` entries exist, treat them as hard behavioral constraints for this session.
 15. Proceed — do not ask "ready to continue?", just continue
 
 **`--quiet` mode** skips steps 8–13 entirely. After step 7, emit the single summary line and jump to step 14.
@@ -618,6 +620,64 @@ Accept `--dry-run` to show the preview without writing.
 
 ---
 
+## `/context-handoff profile [edit]`
+
+Your personal profile is a special persistent pack stored at `~/.claude/handoffs/profile.md`. Unlike regular packs, it is **automatically included in every session** — you never need to load it explicitly. It holds context about you that is stable across projects: personal facts, recurring commitments, preferences, working style, and anything else that would otherwise need to be re-established in every new conversation.
+
+**Profile structure** (distinct from regular packs — no `session_id`, no `resume_point`, no `work_state`):
+
+```yaml
+---
+pack_version: "1.2"
+type: profile
+last_updated: "YYYY-MM-DDTHH:MM:SSZ"
+
+# Personal context — facts about your life that are useful to an AI assistant
+personal:
+  - "wife's name: [name]"
+  - "kids: [names and ages]"
+  - "location: [city/country]"
+  - "birthday reminders: [list]"
+  - "recurring commitments: [list]"
+
+# Professional context — stable facts about your work
+professional:
+  - "role: [title]"
+  - "company: [name]"
+  - "stack: [languages/tools]"
+  - "team: [names and roles]"
+  - "ongoing projects: [list]"
+
+# Preferences — how you like to work with AI
+preferences:
+  - "language: [e.g. reply in Polish when I write in Polish]"
+  - "code style: [preferences]"
+  - "communication: [terse/verbose, etc.]"
+
+# Things AI assistants should never do
+never:
+  - "never suggest X"
+  - "never assume Y"
+---
+
+# Profile
+
+[Human-readable summary of the above]
+```
+
+**Without argument (`/context-handoff profile`):** Display the current profile in a readable format. If no profile exists: "No profile yet. Run `/context-handoff profile edit` to create one."
+
+**With `edit` argument (`/context-handoff profile edit`):**
+1. If profile exists, show current content section by section
+2. Ask which section to update (personal / professional / preferences / never)
+3. Accept the user's input and update the relevant section
+4. Write `~/.claude/handoffs/profile.md`
+5. Confirm: `✓ Profile updated`
+
+If no profile exists, walk through each section in sequence to create it from scratch.
+
+---
+
 ## `/context-handoff setup`
 
 Interactive first-time setup wizard. Covers everything in sequence.
@@ -728,6 +788,7 @@ Sharing
   export <pack> [--format markdown|json] [--output file]
 
 Setup
+  profile [edit]            View or edit your persistent personal profile
   setup                     Interactive first-time setup wizard
   doctor                    Verify hook, dirs, active session
   version                   Show installed skill version
@@ -746,6 +807,7 @@ Claude recognises the following aliases as equivalent to their canonical command
 | Canonical | Alias(es) |
 |-----------|-----------|
 | `pack` | `save`, `snapshot` |
+| `profile` | `me`, `about-me` |
 | `load` | `resume` |
 | `contracts` | `rules`, `prefs` |
 | `add-thread` | `open-thread`, `thread` |
@@ -779,6 +841,8 @@ Confirm once, quietly:
 > `✓ Session started — [topic] (auto-pack created)`
 
 This means the user never needs to remember to run `/context-handoff pack`. The pack exists from turn 1.
+
+**Profile on auto-pack:** When an auto-pack is created on session start, also silently load the profile (same as step 14a in `load`).
 
 ### Session ID Pinning
 
