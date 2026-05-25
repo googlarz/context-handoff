@@ -1,6 +1,6 @@
 # context-handoff
 
-![version](https://img.shields.io/badge/version-1.6.0-blue)
+![version](https://img.shields.io/badge/version-1.6.1-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![skill](https://img.shields.io/badge/Claude%20Code-skill-orange)
 
@@ -159,6 +159,7 @@ Load a specific session by name.
 | `/context-handoff export <name>` | Export pack to clean markdown or JSON — no YAML, shareable with anyone |
 | `/context-handoff amend-decision <text>` | Edit an existing decision's reasoning or mark it superseded |
 | `/context-handoff note <text>` | Add a quick observation to the active pack (lighter-weight than a thread) |
+| `/context-handoff import <file>` | Extract context from a meeting note, doc, or text file into the active pack |
 | `/context-handoff notes` | List all notes in the active session |
 | `/context-handoff verify` | Diff Claude's stated session understanding against the written pack |
 
@@ -299,6 +300,8 @@ They're complementary, not competing. Use both.
 ---
 
 ## What's next (v2.0)
+
+**v1.6.1 shipped:** Auto-pack on session start (pack created silently from turn 1, no manual command needed), `import` command (pull decisions/threads/notes from meeting notes, Slack exports, docs), `current.json` mirror (active pack always available as JSON at `~/.claude/handoffs/current.json` for any agent or tool to read — not just Claude).
 
 **v1.6.0 shipped:** Expert reliability overhaul — `verify` command (diffs session memory vs. written pack), pack integrity hash (SHA-256 verified on load), concurrency protection (two parallel sessions no longer clobber each other), Write/Edit hook (files_touched updated on every file change, not just git commits), decision history (amend-decision preserves prior reasoning in `history` sub-field), pack size budget (auto-archives closed threads and superseded decisions above threshold).
 

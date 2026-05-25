@@ -1,6 +1,6 @@
 ---
 name: context-handoff
-version: "1.6.0"
+version: "1.6.1"
 description: Session continuity for Claude — pack your current session state and load it into any new conversation with full context, decisions, behavioral contracts, and work state restored. Auto-updates on commits, decisions, and every 5 turns.
 tags: [session-continuity, context, handoff, productivity]
 author: googlarz
@@ -32,6 +32,7 @@ All commands that prompt for confirmation accept `--yes` / `-y` to skip. See the
 | `/context-handoff close <thread>` | Mark an open thread as resolved |
 | `/context-handoff notes` | List all notes in the active pack |
 | `/context-handoff note <text>` | Add a quick observation to the active pack |
+| `/context-handoff import <file>` | Extract context from a meeting note, doc, Slack export, or any text file and merge it into the active pack |
 | `/context-handoff contracts` | View and edit active behavioral contracts |
 | `/context-handoff amend-decision <partial-what>` | Edit an existing decision's reasoning in the active pack |
 | `/context-handoff diff [--vs-current] [pack1] [pack2]` | Compare two packs, or a pack against current git state |
@@ -576,6 +577,47 @@ Newest first. No truncation — show full note text.
 
 ---
 
+## `/context-handoff import <file>`
+
+Extract context from an external file and merge it into the active pack. Useful for pulling in meeting notes, Slack exports, calendar entries, project docs, or any text without manually re-typing decisions and threads.
+
+**Supported inputs:** Any readable text file — `.md`, `.txt`, `.json`, `.ics`, plain text. Claude reads the content and extracts what's relevant.
+
+**Steps:**
+1. Read `.active` to get the current pack path. If no active session: error "No active session. Load or create a pack first."
+2. Read the file at `<file>`.
+3. Extract from the file content:
+   - **Decisions / conclusions** → append to `decisions` (what + why inferred from context, `when` = file mtime or now)
+   - **Action items / open questions** → append to `open_threads` with `priority: medium` by default
+   - **Key facts or observations** → append to `notes`
+   - **Files or resources referenced** → append to `context_files` if paths are mentioned
+4. Before writing, show a preview of what will be imported:
+   ```
+   Import preview — meeting-notes-2026-05-18.md
+   ─────────────────────────────────────────────
+   decisions (2):
+     + chose Redis over Memcached for session storage
+     + defer auth refactor to Q3
+   open_threads (1):
+     + confirm rate limit behaviour with infra team [medium]
+   notes (1):
+     + Stan is OOO until June 2
+
+   Import? (y/n)
+   ```
+5. On confirm (or with `--yes` / `-y`): write the merged pack. Add an artifact entry:
+   ```yaml
+   artifacts:
+     - label: "imported: <filename>"
+       content: "imported <N> decisions, <M> threads, <K> notes from <filename>"
+   ```
+6. Confirm: `✓ Imported from [filename] — [N] decisions, [M] threads, [K] notes added`
+
+Accept `--yes` / `-y` to skip the preview confirmation.
+Accept `--dry-run` to show the preview without writing.
+
+---
+
 ## `/context-handoff setup`
 
 Interactive first-time setup wizard. Covers everything in sequence.
@@ -669,6 +711,7 @@ Editing
   add-thread <text> [--priority high|medium|low]
   close <thread>            Resolve an open thread
   note <text>               Add a quick observation
+  import <file>             Extract context from a file into the active pack
   contracts                 View/edit behavioral contracts
   amend-decision <text>     Edit a decision's reasoning
 
@@ -717,6 +760,25 @@ Example: `/context-handoff resume` is identical to `/context-handoff load`.
 ## Auto-Update System
 
 Once a session has an active pack (created via `pack` or loaded via `load`), maintain it automatically. Do not ask permission — just do it.
+
+### Auto-pack on session start
+
+If no `.active` file exists after the first assistant turn in a session, silently create a minimal pack automatically — no prompt, no confirmation needed.
+
+**Minimal auto-pack contains:**
+- `topic`: inferred from the user's first message (3–5 word slug)
+- `session_id`: generated fresh
+- `created` / `last_updated`: now
+- `resume_point`: empty (filled on first real update)
+- `work_state.goal`: inferred from first message
+- All other fields: empty defaults
+
+Write the pack to `~/.claude/handoffs/YYYY-MM-DD-<topic-slug>.md` and set `.active`.
+
+Confirm once, quietly:
+> `✓ Session started — [topic] (auto-pack created)`
+
+This means the user never needs to remember to run `/context-handoff pack`. The pack exists from turn 1.
 
 ### Session ID Pinning
 
@@ -784,6 +846,22 @@ Before writing a pack, read the current file and check two things:
 2. **Session ID check:** If the file's `session_id` differs from the current session's `session_id`, this pack is being written by another Claude session. Do NOT overwrite. Instead, append new decisions and threads only — never replace `work_state` or `resume_point`. Log silently: `⚠ Concurrent session detected — appended decisions only, work_state not overwritten.`
 
 This prevents two parallel Claude sessions (e.g., two terminal tabs) from clobbering each other's work state.
+
+**`current.json` mirror:** On every pack write (pack, update, auto-update), also write `~/.claude/handoffs/current.json` containing all YAML frontmatter fields as a flat JSON object. This makes the active session readable by any tool, agent, or LLM that can read files — no YAML parsing required. Other agents can point to this file to get always-current context without needing the context-handoff skill installed.
+
+Example structure:
+```json
+{
+  "topic": "vibe-safe-release",
+  "session_id": "ch-20260517-x7k2",
+  "last_updated": "2026-05-17T14:30:00Z",
+  "resume_point": "README needs updating",
+  "work_state": { "goal": "...", "files_touched": [], "plan_position": "..." },
+  "decisions": [...],
+  "open_threads": [...],
+  "behavioral_contracts": [...]
+}
+```
 
 **update_triggers cap:** When appending to `update_triggers`, if the list already has 20 entries, replace it with a summary format before appending the new trigger:
 ```yaml
