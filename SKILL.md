@@ -1,6 +1,6 @@
 ---
 name: context-handoff
-version: "1.6.4"
+version: "1.6.5"
 description: Session continuity for Claude — pack your current session state and load it into any new conversation with full context, decisions, behavioral contracts, and work state restored. Auto-updates on commits, decisions, and every 5 turns.
 tags: [session-continuity, context, handoff, productivity]
 author: googlarz
@@ -580,15 +580,19 @@ Newest first. No truncation — show full note text.
 
 ---
 
-## `/context-handoff import <file>`
+## `/context-handoff import <file|url>`
 
 Extract context from an external file and merge it into the active pack. Useful for pulling in meeting notes, Slack exports, calendar entries, project docs, or any text without manually re-typing decisions and threads.
 
-**Supported inputs:** Any readable text file — `.md`, `.txt`, `.json`, `.ics`, plain text. Claude reads the content and extracts what's relevant.
+**Supported inputs:**
+- **Files:** Any readable text file — `.md`, `.txt`, `.json`, `.ics`, plain text
+- **URLs:** Any fetchable URL — Fathom/Granola transcript links, Notion pages, GitHub issues/PRs, Google Docs (public), raw text URLs. Claude fetches the content and extracts what's relevant.
+
+If a URL is given, fetch its content first, then proceed with the same extraction logic as for files.
 
 **Steps:**
 1. Read `.active` to get the current pack path. If no active session: error "No active session. Load or create a pack first."
-2. Read the file at `<file>`.
+2. If `<file>` starts with `http://` or `https://`, fetch the URL content. Otherwise read the local file.
 3. Extract from the file content:
    - **Decisions / conclusions** → append to `decisions` (what + why inferred from context, `when` = file mtime or now)
    - **Action items / open questions** → append to `open_threads` with `priority: medium` by default
@@ -784,6 +788,7 @@ Verify that context-handoff is correctly installed and the current session is he
 4. **Active session:** Read `~/.claude/handoffs/.active`. If present, show topic + last_updated. If absent, report "No active session".
 5. **Skill version:** Report the version from the SKILL.md frontmatter (search `~/.claude/skills/context-handoff/SKILL.md` for `^version:`). If not found, report "version unknown".
 6. **Recent packs:** List the 5 most recent `.md` files in `~/.claude/handoffs/` (excluding `.active`) with their dates.
+7. **Update available:** Compare the installed version (from step 5) against the latest GitHub release tag by fetching `https://api.github.com/repos/googlarz/context-handoff/releases/latest`. If a newer version exists, report: `↑ v[latest] available — run scripts/upgrade.sh to update`. If fetch fails or installed version matches latest: report `✓ Up to date`.
 
 **Output format:**
 ```
@@ -794,6 +799,7 @@ context-handoff doctor
 ✓ .claude/handoffs/ exists (3 packs)
 ✓ Active session: vibe-safe-release (updated 47m ago)
 ✓ Skill version: 1.4.0
+✓ Up to date  (or: ↑ v1.6.6 available — run scripts/upgrade.sh)
 
 Recent packs:
   2026-05-17 · context-handoff-build
@@ -894,6 +900,8 @@ Claude recognises the following aliases as equivalent to their canonical command
 | `close` | `close-thread`, `resolve`, `done` |
 | `note` | `observe` |
 | `notes` | `list-notes` |
+| `delete` | `del`, `rm` |
+| `export` | `share` |
 
 Example: `/context-handoff resume` is identical to `/context-handoff load`.
 
@@ -1290,7 +1298,7 @@ Forked packs reference their origin via `forked_from` (set automatically by `/co
 
 When no pack exists for the current session (no `.active` file), proactively offer to pack at these natural endpoints:
 
-- **Session length:** The conversation has exceeded 20 assistant turns
+- **Session length:** The conversation has exceeded 10 assistant turns
 - **Natural close:** User says "done", "wrapping up", "that's all", "bye", "thanks", "ending session", "good enough for now", or similar closing phrases
 - **Milestone:** A feature ships, a bug is fixed, a significant decision is finalized, a task is fully completed
 

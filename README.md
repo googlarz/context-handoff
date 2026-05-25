@@ -1,12 +1,12 @@
 # context-handoff
 
-![version](https://img.shields.io/badge/version-1.6.4-blue)
+![version](https://img.shields.io/badge/version-1.6.5-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![skill](https://img.shields.io/badge/Claude%20Code-skill-orange)
 
 **Your Claude sessions have amnesia. This fixes it.**
 
-A Claude Code skill that packs your session state — decisions, reasoning, work state, behavioral contracts — and restores it in any new conversation. The new session resumes exactly where you left off.
+A Claude Code skill that saves what happened in a session — decisions made, things tried and rejected, where you left off, how you like to work — and brings it all back in any new conversation. Pick up exactly where you stopped.
 
 Works for you, your future self, your teammates, and parallel Claude sessions.
 
@@ -20,18 +20,18 @@ The worst part isn't the summary — it's the **ruled-out list**. The things tha
 
 ## What it does
 
-`/context-handoff pack` captures your session into a living document:
+Saving a session (`/context-handoff save`) captures it into a living document:
 
-| What's captured | Why it matters |
-|----------------|---------------|
-| **Decisions + reasoning** | Prevents re-litigating. Not just "we chose X" but "we chose X over Y because Z". |
-| **Ruled out + why** | The most expensive context to lose. Stops the same wrong turns from being taken twice. |
-| **Work state** | Current goal, files touched, position in any active plan. |
-| **Behavioral contracts** | Active skills, preferences established, how Claude was behaving in this session. |
-| **Communication style** | How you communicate, what you pushed back on, implicit agreements. |
-| **Open threads** | Unresolved questions with full context. |
+| What's saved | Why it matters |
+|-------------|---------------|
+| **Decisions + reasoning** | Not just "we chose X" but "we chose X over Y because Z" — stops the same debate from happening twice. |
+| **Dead ends + why** | The most expensive context to lose. Every wrong turn that was considered and rejected, with the reason. |
+| **Where you left off** | Current goal, files touched, position in any active plan. |
+| **How you like to work** | Preferences established, how Claude was behaving, what you pushed back on. |
+| **Communication style** | Tone, verbosity, implicit agreements built up over the session. |
+| **Open questions** | Unresolved threads with full context — nothing falls through the cracks. |
 
-`/context-handoff load` restores all of it into a new session. Claude reads the pack, re-establishes every contract, and picks up from the exact resume point — before doing anything else.
+`/context-handoff resume` restores all of it into a new session. Claude reads everything back, re-establishes how you like to work, and picks up from the exact resume point — before doing anything else.
 
 ## How it works
 
@@ -172,7 +172,7 @@ Load a specific session by name.
 
 Commands that accept `--project`: `pack`, `load`, `archive`, `fork`, `search`, `threads` — saves/reads from `.claude/handoffs/` inside the git repo instead of `~/.claude/handoffs/`.
 
-> Common aliases: `save` = `pack`, `resume` = `load`, `rules` = `contracts`, `thread` = `add-thread`, `resolve` = `close`.
+> Common aliases: `save`/`snapshot` = `pack`, `resume`/`continue` = `load`, `rules`/`how-i-work` = `contracts`, `thread`/`todo` = `add-thread`, `resolve`/`done` = `close`, `share` = `export`, `del`/`rm` = `delete`.
 
 `load` also accepts `--state-only` to restore work state without re-establishing behavioral contracts.
 
@@ -343,6 +343,54 @@ Updated automatically on every save — no manual export needed.
 
 ---
 
+## Using with your team
+
+### Share a session with a teammate
+
+Pack your session, commit the file, done. Your teammate loads it and picks up with your full decision context — not just a summary, but every decision and every dead end with its reasoning.
+
+```bash
+# Save your session to the project (instead of ~/.claude/handoffs/)
+/context-handoff save --project
+
+# Commit it
+git add .claude/handoffs/
+git commit -m "handoff: auth refactor context for @teammate"
+git push
+```
+
+Your teammate:
+```
+/context-handoff resume --project
+```
+
+### Parallel work with fork
+
+Two people working on the same problem from different angles:
+
+```
+/context-handoff fork auth-refactor auth-approach-a
+/context-handoff fork auth-refactor auth-approach-b
+```
+
+Each fork preserves the full decision history. When one approach wins, merge the insights back:
+
+```
+/context-handoff merge auth-approach-a auth-approach-b
+```
+
+### Project-scoped vs global packs
+
+| | Global (`~/.claude/handoffs/`) | Project (`.claude/handoffs/`) |
+|---|---|---|
+| Visible to | You only | Everyone who clones the repo |
+| Good for | Personal work, solo projects | Team handoffs, shared context |
+| Committed to git | No | Yes (add `.claude/handoffs/` to repo) |
+
+Use `--project` flag on `save`, `resume`, `archive`, `fork`, `search`, and `threads` to switch scope.
+
+---
+
 ## vs Claude's built-in memory
 
 Users often ask: "how is this different from Claude's memory files?"
@@ -373,6 +421,8 @@ They're complementary, not competing. Use both.
 ---
 
 ## What's next (v2.0)
+
+**v1.6.5 shipped:** Plain-language README intro, team usage guide (project-scoped packs, fork for parallel work, sharing via git), `import` now accepts URLs (Fathom links, Notion pages, GitHub issues), `doctor` checks for available updates, proactive save offer at 10 turns (down from 20), new aliases: `del`/`rm`=delete, `share`=export.
 
 **v1.6.4 shipped:** Plain-language help — all commands now show what they actually do alongside their technical names. `current.json` cross-tool guide — Cursor, Windsurf, Claude.ai web, and any MCP agent can now consume the active session with zero extra setup.
 
