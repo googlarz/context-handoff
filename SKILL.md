@@ -46,7 +46,7 @@ All commands that prompt for confirmation accept `--yes` / `-y` to skip. See the
 | `/context-handoff export <pack> [--format markdown\|json] [--output <file>]` | Export a pack to a clean shareable format |
 | `/context-handoff profile [edit]` | View or edit your persistent personal profile — context that loads automatically in every session |
 | `/context-handoff setup` | Interactive first-time setup wizard |
-| `/context-handoff doctor` | Check hook installation, dirs, active session, and skill version |
+| `/context-handoff doctor [--clean]` | Check hook installation, dirs, active session, and skill version; `--clean` removes orphaned `.active` entries |
 | `/context-handoff version` | Show the installed skill version |
 | `/context-handoff help` | Show a compact in-session command reference |
 
@@ -57,7 +57,7 @@ All commands that prompt for confirmation accept `--yes` / `-y` to skip. See the
 When `/context-handoff` is invoked with no subcommand, smart-route based on session state:
 
 1. Check `~/.claude/handoffs/.active` and `.claude/handoffs/.active`
-2. **Active pack found (updated < 4 hours ago):**
+2. **Active pack found (updated <= 4 hours ago):**
    > "Resume **[topic]** from [X ago]? (y/n)"
    - **Yes:** run `/context-handoff load [pack]`
    - **No:** ask "Create a new session pack instead? (y/n)" — if yes, run `/context-handoff pack`
@@ -95,7 +95,7 @@ Synthesize the current conversation into a context pack file.
 **Steps:**
 1. Infer the topic from the conversation (or ask the user if ambiguous)
 2. Create the target directory if it doesn't exist
-3. **Stale session check:** If `~/.claude/handoffs/.active` (or `.claude/handoffs/.active` for `--project`) already exists and the `last_updated` timestamp in that pack file is more than 4 hours old, surface it before proceeding:
+3. **Stale session check:** If `~/.claude/handoffs/.active` (or `.claude/handoffs/.active` for `--project`) already exists and the `last_updated` timestamp in that pack file is 4 hours old or older, surface it before proceeding:
    > "Previous session detected: [topic] (last updated X hours ago). Load it, discard it, or ignore and continue?"
    - **Load:** run `/context-handoff load` with that pack
    - **Discard:** delete `.active` and proceed
@@ -106,7 +106,7 @@ Synthesize the current conversation into a context pack file.
    - **New:** proceed with creating a new dated file
 5. **prior_session auto-population:** If `.active` exists and is valid (not stale), set `prior_session` in the new pack's frontmatter to the path of the currently active pack before writing.
 6. Generate the pack file at `<dir>/YYYY-MM-DD-<topic-slug>.md`
-6a. **Integrity hash:** Compute the SHA-256 of the file content **with the `content_hash` field set to an empty string** (i.e., hash the file as if `content_hash: ""`). Store the resulting hex digest in `content_hash` and write the file once. On verification, the same normalization is applied before checking: temporarily replace `content_hash: "<value>"` with `content_hash: ""` in the string before hashing.
+6a. **Integrity hash:** Compute the SHA-256 of the file content **with the `content_hash` field set to an empty string** (i.e., hash the file as if `content_hash: ""`). Store the resulting hex digest in `content_hash` and write the file once. On verification, the same normalization is applied before checking: temporarily replace `content_hash: "<value>"` with `content_hash: ""` in the string before hashing. Compute content_hash AFTER all fields including `behavioral_contracts` (seeded from CLAUDE.md in the previous step) have been populated. Normalize by setting `content_hash: ""` in the in-memory representation before computing the SHA-256.
 7. **CLAUDE.md seeding:** Before synthesizing behavioral contracts from the session:
    a. Check if `CLAUDE.md` exists in the current directory or `~/.claude/CLAUDE.md`
    b. If found, read it and extract any behavioral instructions (style, process, constraints)
@@ -116,7 +116,7 @@ Synthesize the current conversation into a context pack file.
    ```json
    { "<cwd>": { "session_id": "<session_id>", "pack": "/full/path/to/pack.md", "last_updated": "<timestamp>" } }
    ```
-   Write the updated JSON back to `~/.claude/handoffs/.active`.
+   Write the updated JSON back to `~/.claude/handoffs/.active`. Use UTC time for `last_updated` (`new Date().toISOString()` or equivalent — the `Z` suffix is required). For `--project` packs, write the cwd entry to BOTH `~/.claude/handoffs/.active` AND `.claude/handoffs/.active` (creating the local directory if needed), so both global and project-level lookups find the session.
 10. Confirm: tell the user the file path and that auto-updates are now active
 11. Check if the hook is installed (look for "CONTEXT-HANDOFF" in `~/.claude/settings.json`). If not found, emit once: `⚠ Commit hook not installed — run scripts/install-hook.sh for automatic commit-triggered updates.`
 
@@ -139,14 +139,16 @@ Load a context pack at the start of a new session.
 - `--contracts-only`: restore only behavioral contracts and communication style, skipping work state and decisions. Useful when starting a fresh task but wanting to preserve working style.
 - `--yes` / `-y`: in default (non-quiet) mode, skips the "any contracts no longer apply?" question but still shows contracts and threads. Combined with `--quiet`, has no additional effect (quiet is already fully silent).
 
+Note: passing both `--state-only` and `--contracts-only` in the same command is an error. Claude should report: "Cannot use --state-only and --contracts-only together — they produce an empty restore. Use one or neither."
+
 **Steps (default mode):**
-1. **Stale `.active` check:** Only trigger this when NO specific pack name was given. If `.active` already exists and the `last_updated` timestamp in that pack file is more than 4 hours old, surface it before proceeding:
+1. **Stale `.active` check:** Only trigger this when NO specific pack name was given. If `.active` already exists and the `last_updated` timestamp in that pack file is 4 hours old or older, surface it before proceeding:
    > "Previous session detected: [topic] (last updated X hours ago). Load it, discard it, or ignore and continue?"
    - **Load:** run `/context-handoff load` with that pack
    - **Discard:** delete `.active` and proceed
    - **Ignore:** proceed without clearing `.active` (user manages it)
    If a specific pack name was given (`/context-handoff load vibe-safe-release`), skip this check entirely and load the requested pack directly.
-2. If a file path is given, load that file. Otherwise list the 5 most recent packs with a one-line summary per pack and ask the user to choose:
+2. If a file path is given, load that file. If `.active` contains a cwd entry but the referenced pack file path does not exist on disk, report: "Active session pack file not found at <path>. The file may have been deleted. Run `/context-handoff pack` to create a new pack, or `/context-handoff doctor` to diagnose." Do not proceed with the command. Otherwise list the 5 most recent packs with a one-line summary per pack and ask the user to choose:
    ```
    1. 2026-05-16 · vibe-safe-release · 9 updates · 3 open threads
    2. 2026-05-15 · llmessenger-auth · 4 updates · 1 open thread
@@ -155,7 +157,7 @@ Load a context pack at the start of a new session.
 3. If the handoffs directory is empty or doesn't exist: "No packs found. Use `/context-handoff pack` to create one."
 4. Read the pack file. If YAML frontmatter fails to parse, fall back to reading the markdown body only and warn: `⚠ Pack YAML could not be parsed — loading human-readable layer only. Behavioral contracts and work state will not be restored.`
 4a. **Integrity check:** If `content_hash` is present and non-empty, verify it: normalize the file content by replacing the `content_hash` value with an empty string, compute SHA-256 of the normalized content, and compare. If mismatch: `⚠ Pack integrity check failed — file may have been modified outside context-handoff. Proceeding anyway.`
-5. **Staleness check:** If `last_updated` is more than 7 days ago, warn before restoring:
+5. **Staleness check:** If `last_updated` is 7 days old or older, warn before restoring:
    > `⚠ This pack is X days old (last updated YYYY-MM-DD). Resume point and open threads may be stale.`
    Continue loading regardless.
 6. Parse the AI YAML layer
@@ -189,7 +191,7 @@ Force-write a full update to the current session's pack.
 **Steps:**
 1. Find the active pack by reading `~/.claude/handoffs/.active` (look up entry by current working directory in the JSON map; or ask user if not found)
 2. Before writing, check if `last_updated` in the file is newer than what Claude last read. If so, read the current file first and merge (append new decisions, take latest work_state) rather than overwriting.
-3. Rewrite the full pack with current state
+3. Rewrite the full pack with current state. Use UTC time for all timestamps (`new Date().toISOString()` or equivalent — the `Z` suffix is required).
 3a. **Integrity hash:** Recompute SHA-256 of the updated file content with the `content_hash` field set to an empty string (same normalization as pack step 6a), and update `content_hash` with the resulting hex digest.
 4. Increment `update_count`, append trigger `manual` to `update_triggers`
 5. Confirm silently: `↻ Pack updated (manual) — [path]`
@@ -207,6 +209,8 @@ Diff Claude's in-memory understanding of the current session against what is act
    - Phrases: 'decided', 'going with', 'chose', 'ruling out', 'won't', 'instead of', 'over X because', 'rejected', 'the approach is'
    - Any sentence with a clear alternative comparison ('X over Y', 'X instead of Y')
    
+   Scan the current in-context conversation history. "Recent" means the portion of the conversation since the last `update_log` entry timestamp (or full session if `update_log` is empty). Note: if context compaction has occurred, pre-compaction messages are no longer accessible — the verify scan is limited to post-compaction context only. This is expected; pre-compaction state should have been captured by the PreCompact hook.
+
    Build a candidate list from the scan. This is the ground truth for step 3b below.
 
 3b. Compare on four dimensions:
@@ -262,7 +266,7 @@ List packs in `~/.claude/handoffs/` and the project-local `.claude/handoffs/` (i
 
 **Output columns:** filename · topic · last_updated · update_count · open thread count · scope
 
-**Defaults:** show the 20 most recent packs. Use `--all` to show all packs. Use `--limit <n>` for a custom count. Exclude `profile.md`, `.active`, and `current.json` from results.
+**Defaults:** show the 20 most recent packs. Use `--all` to show all packs. Use `--limit <n>` for a custom count. Exclude `profile.md`, `.active`, `current.json`, `.config`, `*-archive.md` sidecar files, and any files inside an `archive/` subdirectory from results.
 
 **Optional query:** `/context-handoff list vibe-safe` filters by topic/content match.
 
@@ -335,7 +339,7 @@ On confirm (without `--dry-run`), delete the file and confirm deletion.
 Mark an open thread as resolved.
 
 **Steps:**
-1. Read `~/.claude/handoffs/.active` (look up entry by current working directory in the JSON map) to get the current pack path. If no active session: error "No active session. Load a pack first." Find the open thread by partial text match. Error if ambiguous (multiple matches).
+1. Read `~/.claude/handoffs/.active` (look up entry by current working directory in the JSON map) to get the current pack path. If no active session: error "No active session. Load a pack first." If `.active` contains a cwd entry but the referenced pack file path does not exist on disk, report: "Active session pack file not found at <path>. The file may have been deleted. Run `/context-handoff pack` to create a new pack, or `/context-handoff doctor` to diagnose." Do not proceed with the command. Find the open thread by partial text match. Error if ambiguous (multiple matches).
 2. Remove it from `open_threads`
 3. Add it to `closed_threads` with a `closed_at` timestamp (current time)
 4. Write the pack
@@ -352,7 +356,7 @@ Add an open thread to the active pack.
 2. **Duplicate detection:** Before appending, check if any existing open thread has text that is >80% similar. Simple heuristic: if the new text shares 3 or more consecutive words with an existing open thread, warn:
    > "Similar thread already exists: '[existing text]'. Add anyway? (y/n)"
    If the user answers `n`, abort. If `y`, proceed.
-3. Append the new thread to `open_threads` with `added_at` timestamp. Default priority: `medium`.
+3. Append the new thread to `open_threads` with `added_at` timestamp. Set `priority` to the value of `--priority` if provided, otherwise default to `medium`.
 4. Write the pack.
 5. Confirm: `✓ Thread added: "[text]" [priority]`
 
@@ -430,7 +434,7 @@ Merge context from two packs into a new combined pack.
 - `ruled_out`: union, deduplicated by `what` field
 - `closed_threads`: union
 
-**Conflict detection:** After computing the union of decisions, check for conflicts: two decisions whose `what` fields are semantically opposite or contradictory. Simple heuristic: flag any two decisions where one's `what` contains negation words relative to the other ("don't use X" vs "use X", "avoid Y" vs "use Y"). Surface flagged conflicts and ask the user to resolve each before writing the merged pack.
+**Conflict detection:** After computing the union of decisions, check for conflicts: two decisions whose `what` fields are semantically opposite or contradictory. Simple heuristic: flag any two decisions where one's `what` contains negation words relative to the other ("don't use X" vs "use X", "avoid Y" vs "use Y"). Surface flagged conflicts and ask the user to resolve each before writing the merged pack. For each conflict, present both values side-by-side and ask the user to choose: (A) keep the source value, (B) keep the target value, or (C) enter a replacement. Accept 'a', 'b', or 'c' as input.
 
 `--dry-run`: show the merged result in the terminal without writing a file.
 
@@ -447,6 +451,8 @@ Confirm the output path after writing.
 Rename a pack file and update its `topic` field in frontmatter to match.
 
 Accept partial name match if unambiguous. Confirm the old and new filename before renaming.
+
+Before renaming, check if a file with `<new-name>.md` already exists in the same directory. If it does, ask the user: "A pack named <new-name> already exists. Overwrite it? (y/N)" — only proceed if confirmed.
 
 ---
 
@@ -526,7 +532,7 @@ Export a pack to a clean shareable format without YAML frontmatter.
 - Default (no `pbcopy`, Linux/other): write to stdout with a note:
   > "Output (paste into your destination):"
   [content]
-- `--output <file>`: always write to the specified file path, regardless of platform.
+- `--output <file>`: always write to the specified file path, regardless of platform. If `--output <file>` points to an existing file, ask the user: "File <path> already exists. Overwrite? (y/N)" — only proceed if confirmed.
 
 Accept partial name match for `<pack>` if unambiguous.
 
@@ -606,7 +612,7 @@ If a URL is given, fetch its content first, then proceed with the same extractio
 
 **Steps:**
 1. Read `.active` to get the current pack path. If no active session: error "No active session. Load or create a pack first."
-2. If `<file>` starts with `http://` or `https://`, fetch the URL content. Otherwise read the local file.
+2. If `<file>` starts with `http://` or `https://`, fetch the URL content. Otherwise read the local file. If the specified file path does not exist, report: "File not found: <path>. Provide a valid local file path or a URL starting with http:// or https://" and abort.
 3. Extract from the file content:
    - **Decisions / conclusions** → append to `decisions` (what + why inferred from context, `when` = file mtime or now). Before appending any extracted decision, check if an existing decision in `decisions` has a `what` field that is >70% similar (same 3+ consecutive words). If so, skip the duplicate silently.
    - **Action items / open questions** → append to `open_threads` with `priority: medium` by default
@@ -788,7 +794,7 @@ Interactive first-time setup wizard. Covers everything in sequence.
    ```json
    { "default_scope": "global" }
    ```
-   or `"project"` if the user chose project scope. On any subsequent `pack`, `load`, `archive`, `fork`, `search`, or `threads` call without an explicit `--project` or `--global` flag, read `.config` and apply the default. If `.config` is absent, default to global.
+   or `"project"` if the user chose project scope. On any subsequent `pack`, `load`, `archive`, `fork`, `search`, or `threads` call without an explicit `--project` or `--global` flag, read `.config` and apply the default. If `.config` is absent, default to global. Pass `--global` to any scoped command (`pack`, `load`, `archive`, `fork`, `search`, `threads`) to override the stored scope and force global directory for that invocation.
 5. **First pack offer:** Ask: "Want to pack this session now? (y/n)". If yes, run `/context-handoff pack`.
 6. **Summary:** Show what was done and how to get help:
    > "Setup complete. Type `/context-handoff` to resume or save a session, or `/context-handoff help` to see all commands."
@@ -810,6 +816,8 @@ Verify that context-handoff is correctly installed and the current session is he
    - If fetch succeeds and installed version matches latest: report `✓ Up to date`
    - If fetch fails (network error, timeout): report `⚠ Version check unavailable (offline)`
    - If fetch succeeds and a newer version exists: report `↑ v[latest] available — run scripts/upgrade.sh`
+   - Cache the version check result in `~/.claude/handoffs/.version-cache` with a 1-hour TTL. If the cache file exists and is less than 1 hour old, skip the network call and use the cached result. Handle HTTP 429 the same as network failure: show `⚠ Version check unavailable (rate-limited)` and fall through to offline behavior.
+8. **Orphaned `.active` entries:** Scan `~/.claude/handoffs/.active` (and `.claude/handoffs/.active` if it exists) for entries where the cwd path no longer exists on disk. Report any orphaned entries and offer to clean them up: "Found N orphaned session entries for directories that no longer exist. Run `/context-handoff doctor --clean` to remove them."
 
 **Output format:**
 ```
@@ -936,8 +944,8 @@ Once a session has an active pack (created via `pack` or loaded via `load`), mai
 
 After the first assistant turn, check whether a fresh active session exists for the current working directory:
 1. Read `~/.claude/handoffs/.active` as JSON. Look up the current cwd entry.
-2. If entry exists and `last_updated` is within the last 4 hours: do not auto-pack — a session is already active. This prevents re-firing after context compaction, which resets Claude's in-context memory but does not clear `.active`.
-3. If no entry, or entry is stale (> 4 hours): silently create a minimal pack and write the `.active` entry.
+2. If entry exists and `last_updated` is within the last 4 hours (strictly less than 4 hours old): do not auto-pack — a session is already active. This prevents re-firing after context compaction, which resets Claude's in-context memory but does not clear `.active`. Even when auto-pack is skipped, still silently load the profile if `~/.claude/handoffs/profile.md` exists (same as path 1). This ensures profile context is always available regardless of whether an auto-pack was created.
+3. If no entry, or entry is stale (4 hours old or older): silently create a minimal pack and write the `.active` entry.
 
 **Minimal auto-pack contains:**
 - `topic`: inferred from the user's first message (3–5 word slug)
@@ -945,6 +953,7 @@ After the first assistant turn, check whether a fresh active session exists for 
 - `created` / `last_updated`: now
 - `resume_point`: empty (filled on first real update)
 - `work_state.goal`: inferred from first message
+- `update_count`: 0
 - All other fields: empty defaults
 
 Write the pack to `~/.claude/handoffs/YYYY-MM-DD-<topic-slug>.md` and set `.active`.
@@ -1054,6 +1063,8 @@ This prevents two parallel Claude sessions (e.g., two terminal tabs) from clobbe
 
 **`current.json` mirror:** On every pack write (pack, update, auto-update), also write `~/.claude/handoffs/current.json` containing all YAML frontmatter fields as a JSON object (nested structures like `work_state`, `decisions`, and `open_threads` are preserved as-is). This makes the active session readable by any tool, agent, or LLM that can read files — no YAML parsing required. Other agents can point to this file to get always-current context without needing the context-handoff skill installed.
 
+Note: `current.json` is a single global file. When multiple Claude sessions are active in different directories simultaneously, each write overwrites the previous. This is by design — `current.json` represents the most recently active session. For per-project state, use the direct pack file path stored in `.active`.
+
 Example structure:
 ```json
 {
@@ -1094,7 +1105,7 @@ Keep packs under ~50KB. On every update, check the estimated pack size:
   added: {}
   changed: {}
 ```
-Keep the most recent 20 entries intact. The sentinel uses the same bracket format as the `update_triggers` cap.
+Keep the most recent 20 entries intact. The sentinel uses the same bracket format as the `update_triggers` cap. The sentinel entry's `trigger` value (`[80 prior entries — pruned for size]` or similar) is a structural marker, not a trigger enum value, and must not be validated against the trigger enum.
 
 The sidecar is human-readable only — it is never loaded by `load` or `update`. It is for history, not for restoration.
 
@@ -1119,6 +1130,9 @@ Each pack is a markdown file with two layers:
 # Pack schema version
 pack_version: "1.3"
 
+# Optional. 'pack' for regular session packs, 'profile' for profile.md. Omitting 'type' implies 'pack'.
+type: "pack"
+
 created: "YYYY-MM-DDTHH:MM:SSZ"
 last_updated: "YYYY-MM-DDTHH:MM:SSZ"
 update_count: 0
@@ -1131,6 +1145,9 @@ update_triggers: []
 # 4. Hash the resulting bytes
 # SHA-256 of pack content normalized with content_hash set to empty string. Same normalization used for verification.
 content_hash: ""
+
+# All timestamps in context-handoff packs must be UTC (suffix Z).
+# Do not use local-timezone ISO strings. Use new Date().toISOString() or equivalent — the Z suffix is required.
 
 # Chronological log of all updates — append only, never rewrite
 # Enables session replay: read update_log entries in order to reconstruct session history
@@ -1260,9 +1277,13 @@ environment_state:
 
 # Reference to a prior session pack for full lineage (optional)
 # Auto-populated on pack creation when a valid .active session exists
+# Caution: tilde-expanded paths are machine-local. For cross-machine handoffs, the path will not resolve
+# on the recipient's machine — this is expected and handled gracefully (file-not-found is treated as no prior session).
 prior_session: "~/.claude/handoffs/YYYY-MM-DD-prior-topic.md"
 
 # Set when this pack was forked from another (optional)
+# Caution: tilde-expanded paths are machine-local. For cross-machine handoffs, the path will not resolve
+# on the recipient's machine — this is expected and handled gracefully (file-not-found is treated as no prior session).
 forked_from: "~/.claude/handoffs/YYYY-MM-DD-original-topic.md"
 ---
 
@@ -1429,7 +1450,7 @@ Do NOT offer if a pack is already active (`.active` exists and is fresh).
 
 **Superseded decisions on load:** Surface decisions with a `superseded_by` field as struck-through context so the receiver understands the evolution. Don't hide them — the history matters.
 
-**Stale `.active` on startup:** When `pack` or `load` is invoked without a specific pack name and `.active` exists with a `last_updated` more than 4 hours old, surface the previous session and ask the user how to proceed (load / discard / ignore) before continuing.
+**Stale `.active` on startup:** When `pack` or `load` is invoked without a specific pack name and `.active` exists with a `last_updated` that is 4 hours old or older, surface the previous session and ask the user how to proceed (load / discard / ignore) before continuing.
 
 ---
 

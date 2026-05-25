@@ -1,11 +1,21 @@
 ---
-pack_version: "1.1"
-
-version: "1.0"
+pack_version: "1.3"
+content_hash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+update_log:
+  - at: "2026-01-15T09:00:00Z"
+    trigger: "initial"
+    added:
+      decisions: ["Use PostgreSQL for main datastore"]
+  - at: "2026-01-15T11:30:00Z"
+    trigger: "decision"
+    added:
+      decisions: ["Auth via JWT — rejected session cookies for statelessness"]
+    changed:
+      open_threads: ["API design — marked blocked on auth decision"]
 created: "2026-05-16T15:00:00Z"
 last_updated: "2026-05-16T18:30:00Z"
 update_count: 9
-update_triggers: [decision, commit, decision, turn, decision, commit, decision, turn, commit]
+update_triggers: [decision, commit, decision, turn-3, decision, commit, decision, turn-8, commit]
 topic: "building vibe-safe v1.9.0 release"
 session_id: "ch-20260516-x7k2"
 
@@ -24,7 +34,15 @@ behavioral_contracts:
   - "terse responses, no end-of-turn summaries"
   - "use markdown tables for comparisons"
 
-communication_style: "direct and terse; prefers concrete over abstract; pushes back when scope creeps; likes seeing test evidence before shipping"
+communication_style:
+  tone: "direct and terse"
+  verbosity: "low"
+  preferences:
+    - "concrete examples over abstract explanations"
+    - "bullet points for multi-step answers"
+  anti_patterns:
+    - "lengthy preambles"
+    - "restating the question before answering"
 
 pushbacks_recorded:
   - what: "suggested adding a 6th optional tooling integration"
@@ -57,7 +75,7 @@ decisions:
   - what: "use per-file diff analysis for block_pattern check"
     why: "global diff analysis was producing false positives when patterns appeared in deleted lines; per-file is more accurate and gives better error attribution"
     when: "2026-05-16T17:20:00Z"
-    superseded_by: "no longer superseded — this remains the final approach"
+    superseded_by: null
   - what: "store risk category config in a separate YAML file"
     why: "proposed to make categories user-configurable without editing the script"
     when: "2026-05-16T15:15:00Z"
