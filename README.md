@@ -1,6 +1,6 @@
 # context-handoff
 
-![version](https://img.shields.io/badge/version-1.7.1-blue)
+![version](https://img.shields.io/badge/version-1.7.3-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![skill](https://img.shields.io/badge/Claude%20Code-skill-orange)
 
@@ -165,12 +165,12 @@ Load a specific session by name.
 | `/context-handoff export <name>` | Export pack to clean markdown or JSON — no YAML, shareable with anyone |
 | `/context-handoff amend-decision <text>` | Edit an existing decision's reasoning or mark it superseded |
 | `/context-handoff note <text>` | Add a quick observation to the active pack (lighter-weight than a thread) |
-| `/context-handoff import <file>` | Extract context from a meeting note, doc, or text file into the active pack |
+| `/context-handoff import <file\|url>` | Extract context from a meeting note, doc, text file, or URL into the active pack |
 | `/context-handoff sync [--source <name>] [--since <duration>]` | Pull context from connected MCPs (Granola, Slack, Linear, GitHub…) — optional |
 | `/context-handoff notes` | List all notes in the active session |
 | `/context-handoff verify` | Diff Claude's stated session understanding against the written pack |
 
-Commands that accept `--project`: `pack`, `load`, `archive`, `fork`, `search`, `threads` — saves/reads from `.claude/handoffs/` inside the git repo instead of `~/.claude/handoffs/`.
+Commands that accept `--project`: `pack`, `load`, `archive`, `fork`, `search`, `threads` — saves/reads from `.claude/handoffs/` inside the git repo instead of `~/.claude/handoffs/`. Pass `--global` to any of these to override a stored project scope for that invocation.
 
 > Common aliases: `save`/`snapshot` = `pack`, `resume`/`continue` = `load`, `rules`/`how-i-work` = `contracts`, `thread`/`todo` = `add-thread`, `resolve`/`done` = `close`, `share` = `export`, `del`/`rm` = `delete`.
 
@@ -197,10 +197,12 @@ Example pack:
 
 ```yaml
 ---
-version: "1.0"
+pack_version: "1.3"
 topic: "building context-handoff skill"
 session_id: "ch-20260516-x7k2"
 resume_point: "writing README.md — SKILL.md already done"
+content_hash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+update_log: []
 
 behavioral_contracts:
   - "no filler, pleasantries, or hedging"

@@ -1,10 +1,9 @@
 #!/bin/sh
-# context-handoff: install PostToolUse hook for automatic pack updates on git commit
+# context-handoff: install hooks for automatic context handoff triggers
 
 set -e
 
 SETTINGS_FILE="$HOME/.claude/settings.json"
-HOOK_COMMAND='echo "$CLAUDE_TOOL_INPUT" | grep -qE '"'"'git commit|git push'"'"' && echo '"'"'CONTEXT-HANDOFF: commit detected — update pack'"'"' || true'
 
 echo "context-handoff hook installer"
 echo "==============================="
@@ -16,14 +15,14 @@ if [ ! -f "$SETTINGS_FILE" ]; then
   echo "Created $SETTINGS_FILE"
 fi
 
-# Check if hook already installed
-if grep -q "CONTEXT-HANDOFF" "$SETTINGS_FILE" 2>/dev/null; then
-  echo "✓ Hook already installed in $SETTINGS_FILE"
+# Check if hooks already installed
+if grep -q "context-handoff-trigger" "$SETTINGS_FILE" 2>/dev/null; then
+  echo "✓ Hooks already installed in $SETTINGS_FILE"
   exit 0
 fi
 
 # Check if jq is available for safe JSON merging
-if command -v jq &>/dev/null; then
+if command -v jq >/dev/null 2>&1; then
   HOOK_JSON=$(cat <<'EOF'
 {
   "hooks": {
@@ -33,7 +32,27 @@ if command -v jq &>/dev/null; then
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'git commit|git push' && echo 'CONTEXT-HANDOFF: commit detected — update pack' || true"
+            "command": "echo 'git-commit' | grep -q \"$(git log --format='%H' -1 2>/dev/null)\" || context-handoff-trigger commit"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "context-handoff-trigger file-write"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "context-handoff-trigger pre-compact"
           }
         ]
       }
@@ -42,7 +61,7 @@ if command -v jq &>/dev/null; then
 }
 EOF
 )
-  # Deep merge: existing settings + new hook
+  # Deep merge: existing settings + new hooks
   TMPFILE=$(mktemp)
   echo "$HOOK_JSON" > "$TMPFILE"
   MERGED=$(jq -s '
@@ -53,6 +72,10 @@ EOF
         "PostToolUse": (
           ($existing.hooks.PostToolUse // []) +
           ($new.hooks.PostToolUse // [])
+        ),
+        "PreCompact": (
+          ($existing.hooks.PreCompact // []) +
+          ($new.hooks.PreCompact // [])
         )
       }
     }
@@ -60,7 +83,7 @@ EOF
   rm -f "$TMPFILE"
 
   echo "$MERGED" > "$SETTINGS_FILE"
-  echo "✓ Hook installed via jq merge"
+  echo "✓ Hooks installed via jq merge"
 else
   # Fallback: print manual instructions
   echo ""
@@ -75,7 +98,27 @@ else
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'git commit|git push' && echo 'CONTEXT-HANDOFF: commit detected — update pack' || true"
+            "command": "echo 'git-commit' | grep -q \"$(git log --format='%H' -1 2>/dev/null)\" || context-handoff-trigger commit"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "context-handoff-trigger file-write"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "context-handoff-trigger pre-compact"
           }
         ]
       }
