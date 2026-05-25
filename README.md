@@ -1,6 +1,6 @@
 # context-handoff
 
-![version](https://img.shields.io/badge/version-1.6.5-blue)
+![version](https://img.shields.io/badge/version-1.7.0-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![skill](https://img.shields.io/badge/Claude%20Code-skill-orange)
 
@@ -254,6 +254,26 @@ Or add it manually to `~/.claude/settings.json`:
             "command": "echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'git commit|git push' && echo 'CONTEXT-HANDOFF: commit detected — update pack' || true"
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'CONTEXT-HANDOFF: file-write detected — update files_touched'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'CONTEXT-HANDOFF: pre-compact — save pack now'"
+          }
+        ]
       }
     ]
   }
@@ -421,6 +441,8 @@ They're complementary, not competing. Use both.
 ---
 
 ## What's next (v2.0)
+
+**v1.7.0 shipped:** Architecture overhaul targeting the four solvable reliability gaps — per-CWD active session tracking (multiple terminal tabs no longer collide), `update_log` append field in pack format v1.3 (chronological replay of every update within a session), PreCompact hook (full pack write before every context compaction so nothing is lost at the boundary), catchup write strategy (session drift from pure-conversation turns is caught on the next trigger), systematic `verify` (scans actual assistant messages for decision candidates instead of relying on Claude's memory alone).
 
 **v1.6.5 shipped:** Plain-language README intro, team usage guide (project-scoped packs, fork for parallel work, sharing via git), `import` now accepts URLs (Fathom links, Notion pages, GitHub issues), `doctor` checks for available updates, proactive save offer at 10 turns (down from 20), new aliases: `del`/`rm`=delete, `share`=export.
 

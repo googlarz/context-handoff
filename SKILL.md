@@ -1,6 +1,6 @@
 ---
 name: context-handoff
-version: "1.6.5"
+version: "1.7.0"
 description: Session continuity for Claude — pack your current session state and load it into any new conversation with full context, decisions, behavioral contracts, and work state restored. Auto-updates on commits, decisions, and every 5 turns.
 tags: [session-continuity, context, handoff, productivity]
 author: googlarz
@@ -198,9 +198,15 @@ Diff Claude's in-memory understanding of the current session against what is act
 **Steps:**
 1. Read `~/.claude/handoffs/.active`. If no active session: error "No active session. Load or create a pack first."
 2. Read the pack file from disk.
-3. Compare on four dimensions:
+3. **Systematic scan:** Before comparing, extract decision candidates from recent assistant messages by scanning for these patterns:
+   - Phrases: 'decided', 'going with', 'chose', 'ruling out', 'won't', 'instead of', 'over X because', 'rejected', 'the approach is'
+   - Any sentence with a clear alternative comparison ('X over Y', 'X instead of Y')
+   
+   Build a candidate list from the scan. This is the ground truth for step 3b below.
+
+3b. Compare on four dimensions:
    - **resume_point:** Claude's current understanding of where we are vs. the written `resume_point`
-   - **decisions:** Any decisions Claude recalls that are not in the pack's `decisions` list
+   - **decisions:** Candidate list from scan vs. `decisions` in pack — flag any candidates not in the pack
    - **open_threads:** Any threads Claude knows about that are not in `open_threads`
    - **work_state.files_touched:** Files Claude has modified this session vs. `files_touched`
 4. Report the diff:
@@ -708,7 +714,7 @@ Your personal profile is a special persistent pack stored at `~/.claude/handoffs
 
 ```yaml
 ---
-pack_version: "1.2"
+pack_version: "1.3"
 type: profile
 last_updated: "YYYY-MM-DDTHH:MM:SSZ"
 
@@ -934,12 +940,30 @@ This means the user never needs to remember to run `/context-handoff pack`. The 
 
 ### Session ID Pinning
 
-The active pack is tracked via `~/.claude/handoffs/.active`:
-```
-session_id|/full/path/to/pack.md|last_updated_timestamp
+The active pack is tracked via `~/.claude/handoffs/.active` — a **JSON file** mapping working directory to active session:
+
+```json
+{
+  "/Users/dawid/projects/vibe-safe": {
+    "session_id": "ch-20260518-x7k2",
+    "pack": "/Users/dawid/.claude/handoffs/2026-05-18-vibe-safe.md",
+    "last_updated": "2026-05-18T14:30:00Z"
+  },
+  "/Users/dawid/projects/llmessenger": {
+    "session_id": "ch-20260518-y9m3",
+    "pack": "/Users/dawid/.claude/handoffs/2026-05-18-llmessenger.md",
+    "last_updated": "2026-05-18T09:00:00Z"
+  }
+}
 ```
 
-On every auto-update trigger, read `.active` to find the current pack path — no reliance on conversation memory. On session end or new `pack`/`load`, `.active` is overwritten.
+**On every read:** look up the entry for the current working directory (`cwd`). Ignore all other entries.
+
+**On every write:** update only the entry for the current `cwd`. Other projects' entries are never touched.
+
+**Backward compatibility:** if `.active` exists but is not valid JSON (old single-line format), read it as before and migrate it to the new format on next write.
+
+**Result:** multiple Claude sessions in different directories can run simultaneously without colliding. Each project has its own independent active session pointer.
 
 ### Trigger 1: Git commit detected
 
@@ -948,6 +972,8 @@ The PostToolUse hook fires on two event types:
 **Commit trigger:** When hook output contains `CONTEXT-HANDOFF: commit detected` — full pack update (files_touched, plan_position, append `commit` to update_triggers).
 
 **Write trigger:** When hook output contains `CONTEXT-HANDOFF: file-write detected` — lightweight update: append new files to `files_touched`, update `last_updated`. Do NOT increment `update_count` or append to `update_triggers`. Silent, no confirmation.
+
+**Pre-compact trigger:** When hook output contains `CONTEXT-HANDOFF: pre-compact — save pack now` — full pack update immediately, with trigger `pre-compact` in `update_log`. This fires before every context compaction, ensuring the pack is current before the context window shrinks.
 
 Both triggers read `.active` to find the pack path — no reliance on conversation memory.
 
@@ -978,6 +1004,8 @@ If a new communication preference or anti-pattern has been observed since the la
 
 Confirm silently: `↻ [topic] saved (turn [N])`
 
+**Catchup write:** If the last `update_log` entry is more than 5 assistant turns old and any trigger fires (commit, file-write, decision, or manual), perform a catchup write first — a full state update with trigger `catchup` — before the normal incremental update. This ensures that pure-conversation sessions (no tool calls for several turns) don't accumulate silent drift.
+
 ### Failure detection
 
 If no auto-update has fired in the current session and more than 15 assistant turns have passed, emit once:
@@ -988,6 +1016,13 @@ This warning fires at most once per session. Do not repeat.
 ### Update behavior
 
 Updates are **incremental** where possible — append to decisions/ruled_out/open_threads rather than rewriting. Only rewrite `work_state` and `resume_point` in full.
+
+**`update_log` appending:** On every update (auto or manual), append a new entry to `update_log` describing what changed. Never rewrite existing `update_log` entries. This creates a chronological replay log for the full session:
+- `trigger`: one of `initial`, `decision`, `commit`, `file-write`, `turn-N`, `manual`, `pre-compact`
+- `added`: what was newly added in this update (only include non-empty fields)
+- `changed`: what fields changed value (only include fields that actually changed)
+
+Keep `update_log` entries compact — decisions should be short descriptions, not full YAML objects. The full objects live in the main `decisions` list; the log just records that they were added.
 
 **Write coordination and concurrency protection:**
 
@@ -1055,7 +1090,7 @@ Each pack is a markdown file with two layers:
 ```markdown
 ---
 # Pack schema version
-pack_version: "1.2"
+pack_version: "1.3"
 
 created: "YYYY-MM-DDTHH:MM:SSZ"
 last_updated: "YYYY-MM-DDTHH:MM:SSZ"
@@ -1064,6 +1099,21 @@ update_triggers: []
 
 # SHA-256 of pack file content (computed on write, verified on load)
 content_hash: ""
+
+# Chronological log of all updates — append only, never rewrite
+# Enables session replay: read update_log entries in order to reconstruct session history
+update_log: []
+# Each entry shape:
+# - at: "ISO timestamp"
+#   trigger: "initial|decision|commit|file-write|turn-N|manual|pre-compact"
+#   added:
+#     decisions: ["short description of decision added"]
+#     open_threads: ["thread text"]
+#     files_touched: ["path"]
+#     notes: ["note text"]
+#   changed:
+#     resume_point: "new value"
+#     plan_position: "new value"
 
 topic: "short topic description"
 session_id: "ch-YYYYMMDD-xxxx"
@@ -1246,7 +1296,27 @@ To enable automatic pack updates on git commits, add this to `~/.claude/settings
 }
 ```
 
-The `install-hook.sh` script installs both hooks automatically. Run:
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'CONTEXT-HANDOFF: pre-compact — save pack now'"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The PreCompact hook fires before context is compacted. When Claude sees `CONTEXT-HANDOFF: pre-compact`, immediately do a full pack update with trigger `pre-compact` before proceeding. This prevents context loss at compaction boundaries.
+
+The `install-hook.sh` script installs all hooks automatically (Bash commit, Write/Edit file-write, and PreCompact). Run:
 
 ```bash
 bash ~/.claude/skills/context-handoff/scripts/install-hook.sh
@@ -1349,3 +1419,9 @@ Search across all packs:
 ```bash
 # /context-handoff search "semgrep"
 ```
+
+---
+
+## Upgrading
+
+Pack format v1.3 adds `update_log` field. Packs created in v1.2 and earlier load without changes — `update_log` is treated as empty if absent. The `update_log` field is populated going forward from the first v1.7.0 write.
